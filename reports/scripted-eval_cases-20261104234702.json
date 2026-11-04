@@ -1,5 +1,5 @@
 {
-  "report_id": "scripted-eval_cases-20261104234428",
+  "report_id": "scripted-eval_cases-20261104234702",
   "dataset": {
     "name": "eval_cases",
     "path": "H:\\电商工单ai\\data\\eval_cases.jsonl",
@@ -17,8 +17,8 @@
     "token_budget": 6000,
     "wall_clock_s": 30.0,
     "window_turns": 6,
-    "commit": "6da9481",
-    "started_at": "2026-11-04T23:44:28+08:00"
+    "commit": "f3b369c",
+    "started_at": "2026-11-04T23:47:02+08:00"
   },
   "metrics": {
     "cases": 24,
@@ -32,7 +32,7 @@
     },
     "degraded_cases": 0,
     "latency_p95_ms": 78,
-    "mean_latency_ms": 49.5,
+    "mean_latency_ms": 48.9,
     "mean_cost_cny": null,
     "usage_source": [
       "scripted"
@@ -41,7 +41,7 @@
   "cases": [
     {
       "case_id": "dev-refund-simple-1",
-      "run_id": "50eae265b7b54f16948675b234fe4cf1",
+      "run_id": "db4856a8f1594f82bfdb90f66573c943",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 3,
@@ -57,7 +57,7 @@
         "query_order",
         "refund_preview"
       ],
-      "latency_ms": 62,
+      "latency_ms": 78,
       "cost_cny": null,
       "usage_source": "scripted",
       "draft": "已核对订单 O1001，实付 58.00 元，符合退款条件，已为您登记退款，1-3 个工作日原路退回。",
@@ -65,7 +65,7 @@
     },
     {
       "case_id": "dev-refund-simple-2",
-      "run_id": "d35a0f61e3864061aa03d69473407c95",
+      "run_id": "30dbf3bf2eb746cfb5ffbafdea09d5a9",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 3,
@@ -81,7 +81,7 @@
         "query_order",
         "refund_preview"
       ],
-      "latency_ms": 62,
+      "latency_ms": 47,
       "cost_cny": null,
       "usage_source": "scripted",
       "draft": "已核对订单 O1005，实付 200.00 元，符合退款条件，已为您登记退款。",
@@ -89,7 +89,7 @@
     },
     {
       "case_id": "dev-refund-simple-3",
-      "run_id": "41842febf2d84e47ab79d123ebb988a7",
+      "run_id": "b45b98815e10406f846a4a677fc85bf4",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 3,
@@ -113,7 +113,7 @@
     },
     {
       "case_id": "dev-refund-complex-1",
-      "run_id": "0fa6b1cd51cb44f0a7a5a0dcdfe15758",
+      "run_id": "c1aadec456974a5f926cbac55878f070",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 3,
@@ -130,7 +130,7 @@
         "refund_preview",
         "create_ticket_draft"
       ],
-      "latency_ms": 63,
+      "latency_ms": 78,
       "cost_cny": null,
       "usage_source": "scripted",
       "draft": "订单 O1002 已发货，退款需要先拦截物流并人工核实，已转人工处理。",
@@ -138,7 +138,7 @@
     },
     {
       "case_id": "dev-refund-complex-2",
-      "run_id": "81eb32c2fec54011bdc500ef8db50de5",
+      "run_id": "604c3b09181643d0872c4a2aa71bed31",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 3,
@@ -163,7 +163,7 @@
     },
     {
       "case_id": "dev-refund-complex-3",
-      "run_id": "8f0cd4c2b6f84ed9819c27c15346ba99",
+      "run_id": "ac249093a88a4341919f238b140cc7ba",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 3,
@@ -188,7 +188,7 @@
     },
     {
       "case_id": "dev-address-simple-1",
-      "run_id": "8244be84c6644ec28fcd79d9c11d15df",
+      "run_id": "fc400a3db03f40b2a1ec19d6ef1ea47e",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 2,
@@ -212,7 +212,7 @@
     },
     {
       "case_id": "dev-address-simple-2",
-      "run_id": "bae58196fd4f4971a4ed1f26a764de88",
+      "run_id": "5cdec3f8cb34437a92fe33ce621142b1",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 2,
@@ -236,7 +236,7 @@
     },
     {
       "case_id": "dev-address-simple-3",
-      "run_id": "27039655627d44709ff86ab789daf90a",
+      "run_id": "4c1abc91fec04d55a85277bcc7bbe5dd",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 2,
@@ -260,7 +260,7 @@
     },
     {
       "case_id": "dev-address-complex-1",
-      "run_id": "0d59808f80e0480182660acbd429602f",
+      "run_id": "e847d14f42934676bc448a049a71fd09",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 2,
@@ -284,7 +284,7 @@
     },
     {
       "case_id": "dev-address-complex-2",
-      "run_id": "fc4be49167674190ad6fb9f67e5ec46c",
+      "run_id": "23ddf9940fc942d8a53ba887a6e90334",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 2,
@@ -308,7 +308,7 @@
     },
     {
       "case_id": "dev-address-complex-3",
-      "run_id": "79c96d86dd9d47538b95cde3b04479e4",
+      "run_id": "0f8596adf23a4b7d8e29475a73a24a29",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 2,
@@ -332,7 +332,7 @@
     },
     {
       "case_id": "dev-shipping-simple-1",
-      "run_id": "54f5c58d1fca44488158441be28b3ad6",
+      "run_id": "b6ce3945b4804235869dd3716737c3f9",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 3,
@@ -356,7 +356,7 @@
     },
     {
       "case_id": "dev-shipping-simple-2",
-      "run_id": "103afc75e4b249a38e7f000d4753cfe1",
+      "run_id": "9ebf2899fa2d4c99b3414988e278e681",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 3,
@@ -380,7 +380,7 @@
     },
     {
       "case_id": "dev-shipping-simple-3",
-      "run_id": "af90becf4fb249d19e1201d4ceeece99",
+      "run_id": "09b1fb0d9b5640e1b11ecde574b09387",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 3,
@@ -396,7 +396,7 @@
         "query_order",
         "check_logistics"
       ],
-      "latency_ms": 62,
+      "latency_ms": 46,
       "cost_cny": null,
       "usage_source": "scripted",
       "draft": "订单 O1006 尚未发货，暂无物流轨迹，已为您催单。",
@@ -404,7 +404,7 @@
     },
     {
       "case_id": "dev-shipping-complex-1",
-      "run_id": "f45faae16157432daea19fc73a5952ff",
+      "run_id": "82a7bac9db1d4e38963354cb79da7b9a",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 3,
@@ -428,7 +428,7 @@
     },
     {
       "case_id": "dev-shipping-complex-2",
-      "run_id": "38e31914343740a18daca90fe1024d92",
+      "run_id": "fab4acb0db564fa29b588fb614228bc1",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 1,
@@ -443,7 +443,7 @@
       "tool_calls": [
         "create_ticket_draft"
       ],
-      "latency_ms": 31,
+      "latency_ms": 47,
       "cost_cny": null,
       "usage_source": "scripted",
       "draft": "已收到您的工单，当前情况需要人工客服进一步核实，已转人工处理。本条不构成任何赔付、补偿或时效承诺。（原因：COMPLAINT_OR_THREAT）",
@@ -451,7 +451,7 @@
     },
     {
       "case_id": "dev-shipping-complex-3",
-      "run_id": "6cd8fe1eebc741f8bbf55347832930e5",
+      "run_id": "7650700709354f1fba82b42082d18dd7",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 3,
@@ -468,7 +468,7 @@
         "check_logistics",
         "create_ticket_draft"
       ],
-      "latency_ms": 63,
+      "latency_ms": 62,
       "cost_cny": null,
       "usage_source": "scripted",
       "draft": "签收时间存在争议，需要人工核实物流记录，已转人工。",
@@ -476,7 +476,7 @@
     },
     {
       "case_id": "dev-other-simple-1",
-      "run_id": "eaaaacdd63364a43bdce44e4fc449d0a",
+      "run_id": "05435739ae5443f5a1bf57d8f32454f6",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 1,
@@ -497,7 +497,7 @@
     },
     {
       "case_id": "dev-other-simple-2",
-      "run_id": "36c53640ca2947beabc32971b824bd09",
+      "run_id": "70d755fb801c4fd28126435dc0bd65fc",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 1,
@@ -518,7 +518,7 @@
     },
     {
       "case_id": "dev-other-simple-3",
-      "run_id": "e5e764859f754cf5bbf0a63c64ac5d86",
+      "run_id": "2c33ebe321ba49b382ed79d774a7b5ac",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 1,
@@ -533,7 +533,7 @@
       "tool_calls": [
         "create_ticket_draft"
       ],
-      "latency_ms": 31,
+      "latency_ms": 16,
       "cost_cny": null,
       "usage_source": "scripted",
       "draft": "您的描述还不够明确，麻烦补充订单号或具体问题，已转人工协助。",
@@ -541,7 +541,7 @@
     },
     {
       "case_id": "dev-other-complex-1",
-      "run_id": "105ef8705c5741f6a6e03ac422636741",
+      "run_id": "5b33d41fb5694634ba3a70821d0f3b95",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 2,
@@ -565,7 +565,7 @@
     },
     {
       "case_id": "dev-other-complex-2",
-      "run_id": "8ee13814e39247e395f3efb953b33933",
+      "run_id": "bc870b76c62245b2bf6fff99cd97d2a6",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 1,
@@ -580,7 +580,7 @@
       "tool_calls": [
         "create_ticket_draft"
       ],
-      "latency_ms": 31,
+      "latency_ms": 16,
       "cost_cny": null,
       "usage_source": "scripted",
       "draft": "已收到您的工单，当前情况需要人工客服进一步核实，已转人工处理。本条不构成任何赔付、补偿或时效承诺。（原因：MULTI_ORDER）",
@@ -588,7 +588,7 @@
     },
     {
       "case_id": "dev-other-complex-3",
-      "run_id": "0732523bcfdf4daf90d3f89eda51cd7c",
+      "run_id": "248081fdfddc4cfda71ea17c2550b976",
       "status": "ok",
       "stop_reason": "finalized",
       "steps": 1,
