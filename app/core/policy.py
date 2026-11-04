@@ -29,6 +29,17 @@ MULTI_ORDER_KEYWORDS = ("两个订单", "两笔订单", "一起处理", "同时�
 #: 10 草稿承诺性措辞。
 PROMISE_KEYWORDS = ("赔付", "赔偿", "补偿", "保证", "一定", "百分百")
 
+#: 可退事实成立时，模型仍可用的转人工理由（其余理由一律作废，由事实层决定）。
+_MODEL_REASON_ALLOWLIST = frozenset({
+    "COMPLAINT_OR_THREAT",
+    "MULTI_ORDER",
+    "AMBIGUOUS_ORDER_ID",
+    "MISSING_ORDER_ID",
+    "ORDER_NOT_FOUND",
+    "TOOL_FAILURE",
+    "DRAFT_RISK",
+})
+
 _ORDER_RE = re.compile(r"O\d{4}", re.IGNORECASE)
 _ADDRESS_HINT_RE = re.compile(r"(?:地址|改到|改成|改寄|寄到|送到|收货信息)")
 _ADDRESS_BODY_RE = re.compile(
@@ -212,7 +223,7 @@ def evaluate(
     if failures >= 2:
         reasons.append("TOOL_FAILURE")
 
-    if answer.intent is Intent.REFUND:
+    if answer.intent == Intent.REFUND:
         if status == "shipped":
             reasons.append("REFUND_AFTER_SHIP")
         elif facts.amount_cents is not None and facts.amount_cents > refund_limit_cents:
@@ -222,7 +233,7 @@ def evaluate(
         elif facts.refund_allowed is False:
             reasons.append(str(facts.refund_reason or "REFUND_NOT_ALLOWED"))
 
-    if answer.intent is Intent.ADDRESS_CHANGE:
+    if answer.intent == Intent.ADDRESS_CHANGE:
         if len(conflicting_addresses(text)) >= 2:
             reasons.append("ADDRESS_CONFLICT")
         elif status == "shipped":
@@ -230,7 +241,7 @@ def evaluate(
         else:
             reasons.append("ADDRESS_CHANGE")
 
-    if answer.intent is Intent.OTHER and answer.confidence < 0.5:
+    if answer.intent == Intent.OTHER and answer.confidence < 0.5:
         reasons.append("LOW_CONFIDENCE")
 
     draft = answer.reply_draft
@@ -238,10 +249,18 @@ def evaluate(
         reasons.append("DRAFT_RISK")
         draft = _RISK_SAFE_DRAFT
 
-    if answer.needs_human and answer.escalate_reason:
-        reasons.append(str(answer.escalate_reason))
-    elif answer.needs_human:
-        reasons.append("MODEL_FLAGGED")
+    blocked_model_flag = False
+    if answer.needs_human:
+        reason = str(answer.escalate_reason) if answer.escalate_reason else "MODEL_FLAGGED"
+        # 事实优先：refund_preview 判定可退时，模型自述的“退款受阻 / 低置信”都不构成转人工理由，
+        # 否则模型一句“不能退”就能盖过工具事实（AC01 靠这条守住）。
+        blocked_model_flag = (
+            facts.refund_allowed is True
+            and answer.intent == Intent.REFUND
+            and reason not in _MODEL_REASON_ALLOWLIST
+        )
+        if not blocked_model_flag:
+            reasons.append(reason)
 
     primary = reasons[0] if reasons else None
     updated = answer.with_draft(draft)
@@ -261,8 +280,8 @@ def evaluate(
             confidence=updated.confidence,
             slots=dict(updated.slots),
             reply_draft=updated.reply_draft,
-            needs_human=True,
-            escalate_reason=updated.escalate_reason or "MODEL_FLAGGED",
+            needs_human=not blocked_model_flag,
+            escalate_reason=None if blocked_model_flag else (updated.escalate_reason or "MODEL_FLAGGED"),
             used_tools=list(updated.used_tools),
         )
     return PolicyOutcome(

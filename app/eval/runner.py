@@ -88,7 +88,7 @@ def run_suite(
         else:
             loop = ExecutionLoop(config, store, real_model)
             run = loop.run(payload_for(case))
-        row = _row(case, run)
+        row = _row(case, run, store)
         result.rows.append(row)
         _write_evaluation(store, report_id, dataset.name, config, case, run, row)
 
@@ -96,8 +96,9 @@ def run_suite(
     return result
 
 
-def _row(case: Mapping[str, Any], run: Any) -> dict[str, Any]:
+def _row(case: Mapping[str, Any], run: Any, store: Database | None = None) -> dict[str, Any]:
     answer = run.answer
+    records = store.list_tool_calls(run.run_id) if store is not None and run.run_id else []
     return {
         "case_id": case["case_id"],
         "run_id": run.run_id,
@@ -108,7 +109,7 @@ def _row(case: Mapping[str, Any], run: Any) -> dict[str, Any]:
         "intent_pred": None if answer is None else answer.intent.value,
         "intent_ok": metrics.intent_ok(run, case),
         "tools_ok": metrics.tools_ok(run, case),
-        "args_ok": metrics.args_ok(run, case),
+        "args_ok": metrics.args_ok(run, case, records),
         "escalation_ok": metrics.escalation_ok(run, case),
         "needs_human": None if answer is None else answer.needs_human,
         "escalate_reason": None if answer is None else answer.escalate_reason,

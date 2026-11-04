@@ -71,7 +71,7 @@ class Config:
     #: 上下文折叠窗口（DESIGN §5.3）：更早的轮次折叠为确定性摘要。
     window_turns: int = 6
     #: 单次响应输出上限，调用前用于“下一输出额度”估算（IMPLEMENTATION §5）。
-    max_output_tokens: int = 800
+    max_output_tokens: int = 2000
     #: 生命周期钩子的 JSON 审计目录（DESIGN §5.5）；不落库，避免第五张表。
     log_dir: str = "logs"
     #: 计费参数：示例单价与汇率（DESIGN §11 的非功能约束），仅用于成本估算。
@@ -183,7 +183,7 @@ def _build(raw: Mapping[str, Any], overrides: Mapping[str, Any]) -> Config:
     refund_window_days = _as_int(merged, "refund_window_days", "REFUND_WINDOW_DAYS", 7, minimum=0)
     base_url = _as_str(merged, "base_url", "OPENAI_BASE_URL", "https://api.openai.com/v1")
     window_turns = _as_int(merged, "window_turns", "WINDOW_TURNS", 6, minimum=2)
-    max_output_tokens = _as_int(merged, "max_output_tokens", "MAX_OUTPUT_TOKENS", 800, minimum=1)
+    max_output_tokens = _as_int(merged, "max_output_tokens", "MAX_OUTPUT_TOKENS", 2000, minimum=1)
     log_dir = _as_str(merged, "log_dir", "LOG_DIR", "logs")
     price_in_usd_per_mtok = _as_float(
         merged, "price_in_usd_per_mtok", "PRICE_IN_USD_PER_MTOK", 0.15, minimum=0.0

@@ -49,23 +49,41 @@ def tools_ok(result: Any, case: Mapping[str, Any]) -> bool:
     return expected == actual
 
 
-def args_ok(result: Any, case: Mapping[str, Any]) -> bool:
-    calls = [item for item in (result.tool_calls or []) if item.get("name") not in INTERNAL_TOOLS]
-    if any(item.get("error_code") == "INVALID_ARGS" for item in calls):
-        return False
-    if any(item.get("approval_required") for item in calls):
-        return False
-    expected = case.get("expected_args") or []
-    if len(calls) < len(expected):
-        return False
-    for index, want in enumerate(expected):
-        got = calls[index]
-        if got.get("name") != want.get("name"):
+def args_ok(result: Any, case: Mapping[str, Any], calls: Any = None) -> bool:
+    """参数正确率：同工具名逐键比对，不看调用先后顺序。
+
+    顺序不是质量指标——模型先查物流再查订单和反过来是等价的；
+    但错误参数、越权尝试、被拦截的写操作都必须算失败。
+    """
+
+    records = list(calls or [])
+    if records:
+        if any(record.error_code == "INVALID_ARGS" for record in records):
             return False
-        if not want.get("arguments"):
-            continue
-        # 只比对期望里出现的键，避免把“多传但合法”误判为错误。
-        if got.get("args_digest") is None:
+        if any(record.approval_required for record in records):
+            return False
+        by_name: dict[str, list[Mapping[str, Any]]] = {}
+        for record in records:
+            if record.tool_name in INTERNAL_TOOLS:
+                continue
+            by_name.setdefault(record.tool_name, []).append(record.arguments or {})
+    else:  # 兜底：只有摘要时无法比参数，只判有无非法调用
+        summaries = [item for item in (result.tool_calls or [])
+                     if item.get("name") not in INTERNAL_TOOLS]
+        if any(item.get("error_code") == "INVALID_ARGS" for item in summaries):
+            return False
+        if any(item.get("approval_required") for item in summaries):
+            return False
+        return True
+
+    expected = case.get("expected_args") or []
+    for want in expected:
+        name = want.get("name")
+        arguments = want.get("arguments") or {}
+        candidates = by_name.get(str(name))
+        if not candidates:
+            return False
+        if arguments and arguments not in candidates:
             return False
     return True
 

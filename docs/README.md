@@ -43,6 +43,6 @@
 - 代码：`app/`（六组件：config / schemas / store / tools / core / llm + api / cli / eval）、`scripts/`（数据集、评估、泄漏检查、证据收集、演示）、`tests/test_acceptance.py`（AC01–AC21 共 22 个测试）。
 - 验收：`python -m pytest tests -q` → 22 passed；证据索引见 `reports/evidence-index.md`（每条 AC 附 run_id）。
 - 数据集：`data/eval_cases.jsonl` 24 条、`data/holdout.jsonl` 12 条、`data/drafts_50.jsonl` 50 条；题干泄漏检查 `scripts/check_leakage.py` → ok。
-- 指标口径见 [DESIGN.md](DESIGN.md) 第 10 章；当前报告 `provider=scripted`，**脚本数字不代表模型能力**。
+- 指标口径见 [DESIGN.md](DESIGN.md) 第 10 章。两份报告分列：`provider=scripted`（离线桩，证明链路可跑，**不代表模型能力**）与 `provider=openai`（真实模型 deepseek-v4.1-flash-1017，intent 0.958 / tools 0.958 / args 1.000 / escalation 0.917、degraded 0、P95 9062 ms，跑间波动见 README 指标表）。
 - 阻塞：真实模型（`OPENAI_API_KEY` / `OPENAI_BASE_URL`）未提供，真实模型基线与单位成本待实测；`drafts_50` 的人工 A/B/C 档评分无人复核，人工采纳率写“待实测”。
 

@@ -135,3 +135,53 @@ python -m app.cli replay --run-id <失败的 run_id> --prompt v4
 
 恢复附件后补摘要、版本与复现入口。新增实际失败另起记录，不将历史数字抄入新报告。
 
+## 8 真实模型迭代记录（provider = openai，2026-11-05）
+
+模型：deepseek-v4.1-flash-1017（OpenAI 兼容代理，推理型，思考 token 计入 max_tokens）。
+统一条件：prompt v3、DEMO_NOW=2026-11-04T12:00:00+08:00、max_steps=6、token_budget=6000、wall_clock_s=30、24 条开发集。
+
+### 8.1 四轮数字（同一条件，逐轮只改一处）
+
+| 轮次 | 改动 | intent | tools | args | escalation | degraded | P95 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| R0 | 基线（v3 初版提示词） | 0.9583 | 0.7500 | 0.7917 | 0.5833 | 0 | 12313 ms |
+| R1 | 提示词加工具纪律 + 转人工纪律 | 0.9583 | 0.9583 | 1.0000 | 0.8333 | 3 | 12469 ms |
+| R2 | 参数比对按工具名逐键（度量修复）+ max_output_tokens 800→2000 + 策略事实优先 | 0.9583 | 1.0000 | 1.0000 | 0.8750 | 0 | 8422 ms |
+| R3 | 策略里 intent 用 == 而非 is，并修好被拦截理由的回落分支 | 0.9583 | 0.9583 | 1.0000 | 0.9167 | 0 | 9062 ms |
+
+波动区间：intent 0.9167–0.9583、tools 0.7500–1.0000、escalation 0.5833–0.9167、degraded 0–3。
+R2→R3 只有策略一行改动，intent/escalation 却各跳一格，说明单轮差异已进入噪声区间；后续任何改进需同条件重复 3 次取中位数才可宣称。
+
+### 8.2 Bad Case 1（已修）：过度转人工
+
+- 现象：O1001/O1007 等 `refund_preview` 明确 `allowed=true` 的退款单，模型仍以 `REFUND_NOT_ALLOWED` / `REFUND_AFTER_SHIP` / `MODEL_FLAGGED` 转人工，escalation 0.5833。
+- 归因（A→C→B→D）：不是分类错、不是工具集合错、参数也对；是 **D 类（草稿与策略）**——模型把“我不确定”当转人工理由，而策略层只按工具事实复核，缺“事实已放行则模型无权拦”的守卫。
+- 修复：`policy.evaluate` 增加 `_MODEL_REASON_ALLOWLIST`（投诉/多单/歧义/缺号/查无单/工具失败/草稿风险之外的理由，在 `refund_allowed is True` 时一律作废）；并修好 `primary` 为空时回落分支仍把 `needs_human` 置真的缺陷（正是它让守卫失效）。
+- 验证：escalation 0.5833 → 0.8333 → 0.8750 → 0.9167；22 个离线测试仍全绿。
+
+### 8.3 Bad Case 2（已修）：工具集合多调
+
+- 现象：退款单额外调 `refund_submit`（不可逆，被钩子拦成 `IRREVERSIBLE_ACTION`）、改地址单额外调 `check_logistics`，tools 0.7500。
+- 归因：B 类（工具集合不等）。根因是提示词没写工具边界，模型按“多查一步更稳妥”的常识补调用。
+- 修复：`prompts._V2` 写明三个查询工具与各意图的工具组合，并明确“不要调用 `refund_submit` / `address_change`”（写操作由程序在策略判定后走审批）。
+- 验证：tools 0.7500 → 0.9583 → 1.0000。
+
+### 8.4 Bad Case 3（已修）：invalid_output 间歇出现
+
+- 现象：R1 有 3 条 degraded，note 为“模型输出不是合法 JSON：Expecting value: line 1 column 1 (char 0)”与“Expecting property name enclosed in double quotes（截断）”。
+- 归因：推理型模型的思考 token 计入 `max_tokens`，800 不够，content 被截断或为空。
+- 修复：`MAX_OUTPUT_TOKENS` 默认 800 → 2000；JSON 修复一次的重试机制原本就有，未改。
+- 验证：degraded 3 → 0 → 1 → 0。仍属偶发，**不能宣称已消除**（R3 之后未复现，但样本只有 24×1）。
+
+### 8.5 残留 Bad Case（未修，转入 W5 待办）
+
+| case_id | 失败项 | 现象 | 归类 | 备注 |
+| --- | --- | --- | --- | --- |
+| dev-shipping-complex-3 | intent + escalation | 判成 other（gold shipping_urge），草稿触发 DRAFT_RISK 后被替换 | A 类意图错 | 文本“催了三次还没发”对模型更像投诉；是否改标注待业主定，不为分数改标签 |
+| dev-other-simple-2 | escalation | 模型自述 LOW_CONFIDENCE 转人工，标注为不转 | D 类 | other 低置信是否该转人工属策略口径问题，需业主拍板 |
+| dev-other-complex-1 | tools | 额外调 check_logistics（越权单 O1004，查无单后仍查物流） | B 类 | 提示词需补“查单失败即停，不再追加查询” |
+
+### 8.6 成本与延迟口径
+
+- `cost_cny` 由 `Config.estimate_cost_cny` 按 0.15 / 0.60 USD per Mtok、汇率 7.2 估算，**该价目不是代理商的真实价格**（响应 usage 里有 `credit` 字段，单位未核实），只能看量级。
+- P95 含推理思考耗时，故真实模型 P95 稳定在 8–15 s，远超 `wall_clock_s=30` 之外的目标线（< 3 s），这是推理型模型的结构性代价，不是代码 bug。
