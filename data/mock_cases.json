@@ -1,0 +1,463 @@
+{
+  "version": "w1-seed-1",
+  "seed": 20261104,
+  "count": 24,
+  "cases": [
+    {
+      "case_id": "refund-complex-2",
+      "split": "development",
+      "form": "complex",
+      "intent": "refund",
+      "order_id": "O1003",
+      "text": "订单 O1003 签收已经很久了，我还是要退款；你们再不处理我就去平台投诉。",
+      "expected_tools": [
+        "query_order",
+        "refund_preview"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1003"
+        },
+        "refund_preview": {
+          "order_id": "O1003"
+        }
+      },
+      "expected_needs_human": true,
+      "expected_reason": "REFUND_NOT_ALLOWED"
+    },
+    {
+      "case_id": "other-simple-1",
+      "split": "development",
+      "form": "simple",
+      "intent": "other",
+      "order_id": null,
+      "text": "你们双十一有什么活动？想先了解一下再下单。",
+      "expected_tools": [],
+      "expected_args": {},
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "refund-simple-3",
+      "split": "development",
+      "form": "simple",
+      "intent": "refund",
+      "order_id": "O1007",
+      "text": "订单 O1007 收到货了但不太合适，想退款，麻烦帮我确认下还能不能退。",
+      "expected_tools": [
+        "query_order",
+        "refund_preview"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1007"
+        },
+        "refund_preview": {
+          "order_id": "O1007"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "refund-complex-3",
+      "split": "development",
+      "form": "complex",
+      "intent": "refund",
+      "order_id": "O1006",
+      "text": "订单 O1006 金额有点大，我要退款，能不能分两笔退？今天之内必须给我答复。",
+      "expected_tools": [
+        "query_order",
+        "refund_preview"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1006"
+        },
+        "refund_preview": {
+          "order_id": "O1006"
+        }
+      },
+      "expected_needs_human": true,
+      "expected_reason": "REFUND_OVER_LIMIT"
+    },
+    {
+      "case_id": "shipping-simple-2",
+      "split": "development",
+      "form": "simple",
+      "intent": "shipping_urge",
+      "order_id": "O1005",
+      "text": "订单 O1005 一直显示待发货，能不能催催仓库？",
+      "expected_tools": [
+        "query_order",
+        "check_logistics"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1005"
+        },
+        "check_logistics": {
+          "order_id": "O1005"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "refund-complex-1",
+      "split": "development",
+      "form": "complex",
+      "intent": "refund",
+      "order_id": "O1002",
+      "text": "订单 O1002 已经发货了，我现在想退款；如果退不了请告诉我怎么拒收，另外运费谁出？",
+      "expected_tools": [
+        "query_order",
+        "refund_preview"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1002"
+        },
+        "refund_preview": {
+          "order_id": "O1002"
+        }
+      },
+      "expected_needs_human": true,
+      "expected_reason": "REFUND_AFTER_SHIP"
+    },
+    {
+      "case_id": "shipping-simple-3",
+      "split": "development",
+      "form": "simple",
+      "intent": "shipping_urge",
+      "order_id": "O1006",
+      "text": "订单 O1006 什么时候能发？我等得有点久了，帮忙催一下。",
+      "expected_tools": [
+        "query_order",
+        "check_logistics"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1006"
+        },
+        "check_logistics": {
+          "order_id": "O1006"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "other-complex-1",
+      "split": "development",
+      "form": "complex",
+      "intent": "other",
+      "order_id": "O1004",
+      "text": "我帮朋友问一下订单 O1004 的退款进度，他的账号登不上了。",
+      "expected_tools": [
+        "query_order"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1004"
+        }
+      },
+      "expected_needs_human": true,
+      "expected_reason": "ORDER_NOT_FOUND"
+    },
+    {
+      "case_id": "shipping-complex-2",
+      "split": "development",
+      "form": "complex",
+      "intent": "shipping_urge",
+      "order_id": "O1008",
+      "text": "订单 O1008 说好昨天到，现在还没影子，我要催发货也想知道快递单号。",
+      "expected_tools": [
+        "query_order",
+        "check_logistics"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1008"
+        },
+        "check_logistics": {
+          "order_id": "O1008"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "refund-simple-2",
+      "split": "development",
+      "form": "simple",
+      "intent": "refund",
+      "order_id": "O1005",
+      "text": "订单 O1005 我不想要了，想走退款流程，金额不大，麻烦处理一下。",
+      "expected_tools": [
+        "query_order",
+        "refund_preview"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1005"
+        },
+        "refund_preview": {
+          "order_id": "O1005"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "other-simple-2",
+      "split": "development",
+      "form": "simple",
+      "intent": "other",
+      "order_id": "O9999",
+      "text": "订单 O9999 是什么情况？我查不到这个单号，帮我看看。",
+      "expected_tools": [
+        "query_order"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O9999"
+        }
+      },
+      "expected_needs_human": true,
+      "expected_reason": "ORDER_NOT_FOUND"
+    },
+    {
+      "case_id": "address-complex-1",
+      "split": "development",
+      "form": "complex",
+      "intent": "address_change",
+      "order_id": "O1002",
+      "text": "订单 O1002 已经发货了，但地址写错了，能不能改？不能改的话我该怎么办？",
+      "expected_tools": [
+        "query_order"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1002"
+        }
+      },
+      "expected_needs_human": true,
+      "expected_reason": "ADDRESS_AFTER_SHIP"
+    },
+    {
+      "case_id": "address-simple-3",
+      "split": "development",
+      "form": "simple",
+      "intent": "address_change",
+      "order_id": "O1007",
+      "text": "订单 O1007 我想把地址从公司改到家里，还能改吗？",
+      "expected_tools": [
+        "query_order"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1007"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "other-complex-2",
+      "split": "development",
+      "form": "complex",
+      "intent": "other",
+      "order_id": null,
+      "text": "订单 O1001 和 O1008 我都想改地址，能不能一起改？",
+      "expected_tools": [],
+      "expected_args": {},
+      "expected_needs_human": true,
+      "expected_reason": "MULTI_ORDER"
+    },
+    {
+      "case_id": "shipping-complex-3",
+      "split": "development",
+      "form": "complex",
+      "intent": "shipping_urge",
+      "order_id": "O1003",
+      "text": "订单 O1003 显示签收但我根本没收到，快递说放门口了，再不管我就投诉。",
+      "expected_tools": [
+        "query_order",
+        "check_logistics"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1003"
+        },
+        "check_logistics": {
+          "order_id": "O1003"
+        }
+      },
+      "expected_needs_human": true,
+      "expected_reason": "DELIVERY_DISPUTE"
+    },
+    {
+      "case_id": "shipping-simple-1",
+      "split": "development",
+      "form": "simple",
+      "intent": "shipping_urge",
+      "order_id": "O1001",
+      "text": "订单 O1001 付款两天了还没发货，麻烦帮我催一下。",
+      "expected_tools": [
+        "query_order",
+        "check_logistics"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1001"
+        },
+        "check_logistics": {
+          "order_id": "O1001"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "address-simple-2",
+      "split": "development",
+      "form": "simple",
+      "intent": "address_change",
+      "order_id": "O1005",
+      "text": "订单 O1005 地址填错了，麻烦帮我改成新的收货地址，谢谢。",
+      "expected_tools": [
+        "query_order"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1005"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "refund-simple-1",
+      "split": "development",
+      "form": "simple",
+      "intent": "refund",
+      "order_id": "O1001",
+      "text": "订单 O1001 刚买没多久，我想申请退款，麻烦帮我看看能不能退。",
+      "expected_tools": [
+        "query_order",
+        "refund_preview"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1001"
+        },
+        "refund_preview": {
+          "order_id": "O1001"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "shipping-complex-1",
+      "split": "development",
+      "form": "complex",
+      "intent": "shipping_urge",
+      "order_id": "O1002",
+      "text": "订单 O1002 显示已发货三天了，物流一直不动，麻烦查一下到底到哪了。",
+      "expected_tools": [
+        "query_order",
+        "check_logistics"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1002"
+        },
+        "check_logistics": {
+          "order_id": "O1002"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "address-complex-3",
+      "split": "development",
+      "form": "complex",
+      "intent": "address_change",
+      "order_id": "O1006",
+      "text": "订单 O1006 我要改地址，另外想顺便问一下什么时候发货，两件事一起处理。",
+      "expected_tools": [
+        "query_order"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1006"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "address-complex-2",
+      "split": "development",
+      "form": "complex",
+      "intent": "address_change",
+      "order_id": "O1008",
+      "text": "订单 O1008 物流显示已发出，我地址填错，既要改地址又担心包裹丢了。",
+      "expected_tools": [
+        "query_order"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1008"
+        }
+      },
+      "expected_needs_human": true,
+      "expected_reason": "ADDRESS_AFTER_SHIP"
+    },
+    {
+      "case_id": "address-simple-1",
+      "split": "development",
+      "form": "simple",
+      "intent": "address_change",
+      "order_id": "O1001",
+      "text": "订单 O1001 还没发货吧？我想把收货地址改一下，麻烦帮我处理。",
+      "expected_tools": [
+        "query_order"
+      ],
+      "expected_args": {
+        "query_order": {
+          "order_id": "O1001"
+        }
+      },
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "other-simple-3",
+      "split": "development",
+      "form": "simple",
+      "intent": "other",
+      "order_id": null,
+      "text": "上次的问题已经解决了，谢谢你们的客服，服务态度很好。",
+      "expected_tools": [],
+      "expected_args": {},
+      "expected_needs_human": false,
+      "expected_reason": null
+    },
+    {
+      "case_id": "other-complex-3",
+      "split": "development",
+      "form": "complex",
+      "intent": "other",
+      "order_id": null,
+      "text": "你们这什么服务？再不给我个说法我就去 12315 投诉，还要发微博曝光。",
+      "expected_tools": [],
+      "expected_args": {},
+      "expected_needs_human": true,
+      "expected_reason": "COMPLAINT_OR_THREAT"
+    }
+  ]
+}
