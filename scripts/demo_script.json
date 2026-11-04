@@ -1,0 +1,23 @@
+[
+  {
+    "tool_calls": [
+      { "name": "query_order", "arguments": { "order_id": "O1001" } }
+    ]
+  },
+  {
+    "tool_calls": [
+      { "name": "refund_preview", "arguments": { "order_id": "O1001" } }
+    ]
+  },
+  {
+    "final": {
+      "intent": "refund",
+      "confidence": 0.92,
+      "slots": { "order_id": "O1001", "amount_cents": 5800 },
+      "reply_draft": "已核对订单 O1001：实付 5800 元，状态为已付款，符合退款条件。已为您生成退款预览并进入人工复核，复核通过后原路退回。",
+      "needs_human": false,
+      "escalate_reason": null,
+      "used_tools": ["query_order", "refund_preview"]
+    }
+  }
+]

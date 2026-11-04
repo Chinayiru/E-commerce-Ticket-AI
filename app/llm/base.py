@@ -15,6 +15,22 @@ class ModelError(RuntimeError):
     """模型侧错误（超时、上游失败、输出无法解析）。loop 会据此降级而不抛给调用方。"""
 
 
+class InvalidModelOutput(ModelError):
+    """模型输出不是合法 JSON / 不符合输出契约；loop 允许修复一次。"""
+
+    def __init__(self, message: str, *, raw_text: str = "") -> None:
+        super().__init__(message)
+        self.raw_text = raw_text
+
+
+class UpstreamError(ModelError):
+    """上游不可用（鉴权失败、重试用尽、连接中断），直接算终止原因。"""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 @runtime_checkable
 class ModelProvider(Protocol):
     """一次 Provider 请求 = 循环的一步。"""

@@ -1,32 +1,36 @@
-"""有界执行循环：校验输入 → 选工具 → 调工具 → 判断是否继续。
+"""有界执行循环（DESIGN §7、IMPLEMENTATION §5）。
 
-三条硬约束在这里显式实现，全部可配置，任一触发都返回结构化结果而不抛异常：
-    * 最大步数     —— 一次 Provider 请求算一步；
-    * token 预算   —— 累计用量触顶即停；
-    * 墙钟超时     —— 由注入的 ``clock`` 计量，测试可替换。
+一次 ``run`` 的顺序是固定的，改顺序等于改产品语义：
 
-模型与审批都只通过 ``app.llm.base`` 的 Protocol 交互，因此 scripted 与真实
-Provider 可互换，循环本身不需要分叉。
+    校验输入 → 登记 running → 预算/时限检查 → 请求模型 → 写 assistant turn
+    → 预检（仅第一次响应）→ 逐个工具：参数校验 → 前置钩子 → 幂等缓存 → 执行 → 审计
+    → 终局：事实核对 + 策略复核 → 保存草稿 → 收尾
+
+三条边界必须显式可见（``max_steps`` / ``token_budget`` / ``wall_clock_s``），
+任一条触发都返回结构化结果并标 ``degraded``，不抛异常给调用方。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
-import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Sequence
 
 from app.config import Config
-from app.llm.base import ApprovalGate, DenyAllApprovalGate, ModelProvider
+from app.core import policy
+from app.core.context import ContextBuilder, SessionSummary
+from app.core.hooks import HookDecision, Hooks, build_default_hooks
+from app.core.prompts import REPAIR_INSTRUCTION, get_prompt, prompt_hash
+from app.llm.base import ApprovalGate, DenyAllApprovalGate, InvalidModelOutput, ModelError, ModelProvider
 from app.schemas import (
-    ApprovalDecision,
     FinalAnswer,
     Intent,
     ModelRequest,
     RunResult,
     RunStatus,
+    Session,
     StopReason,
     TicketIn,
     TicketValidationError,
@@ -35,367 +39,582 @@ from app.schemas import (
     ToolResult,
     Turn,
     Usage,
+    args_digest,
+    idempotency_key,
 )
-from app.store.db import StoreError
-from app.tools.registry import default_registry
+from app.store.db import Database, SessionConflict, StoreError
+from app.tools.registry import ToolRegistry, default_registry
 
-PROMPT_VERSION = "w1-skeleton-1"
-
-SYSTEM_PROMPT = (
-    "你是电商售后工单处理助手。意图标签只有四类：refund（退款）、address_change（改地址）、"
-    "shipping_urge（催发货）、other（其他）。需要订单事实时先调用工具，不要臆造金额、物流或政策。"
-    "确认信息充分后给出最终答复；无法确定或涉及权限、投诉时把 needs_human 置为 true。"
+DEGRADED_DRAFT = (
+    "本次处理因系统原因未能完成，已转人工客服接手，稍后会有同事联系您。"
+    "本条不构成任何赔付、补偿或时效承诺。"
 )
-
-_DEGRADED_DRAFT = (
-    "本次自动处理未能在限制内完成，已转人工复核。"
-    "当前草稿不构成任何退款、改址或补发承诺，请以人工客服的最终答复为准。"
+ESCALATION_DRAFT = (
+    "已收到您的工单，当前情况需要人工客服进一步核实，已转人工处理。"
+    "本条不构成任何赔付、补偿或时效承诺。"
 )
-
-_LIMIT_REASONS = {
-    StopReason.MAX_STEPS: "STEP_LIMIT",
+#: 非正常终止 → escalate_reason 的映射（§9.1 第 1 条：stop_reason 大写）。
+STOP_REASON_TO_ESCALATION = {
+    StopReason.MAX_STEPS: "MAX_STEPS",
     StopReason.TOKEN_BUDGET: "TOKEN_BUDGET",
     StopReason.TIMEOUT: "TIMEOUT",
+    StopReason.INVALID_OUTPUT: "INVALID_OUTPUT",
     StopReason.UPSTREAM_ERROR: "UPSTREAM_ERROR",
+    StopReason.DUPLICATE_TICKET: "DUPLICATE_TICKET",
+    StopReason.INPUT_INVALID: "INPUT_INVALID",
 }
 
 
 @dataclass
-class _ToolOutcome:
-    """本次 run 内一次工具调用的结果视图，供策略复核使用。"""
+class _State:
+    """单次运行的滚动状态；只在这里累加 usage / steps / 工具序列。"""
 
-    name: str
-    arguments: dict[str, Any]
-    result: ToolResult
-    record: ToolCallRecord
-
-
-@dataclass
-class _RunState:
     run_id: str
     ticket: TicketIn
-    started_at: float
-    deadline: float
     steps: int = 0
-    usage: Usage = field(default_factory=lambda: Usage(source="scripted"))
-    turns: int = 0
-    messages: list[dict[str, Any]] = field(default_factory=list)
-    outcomes: list[_ToolOutcome] = field(default_factory=list)
-    records: list[ToolCallRecord] = field(default_factory=list)
-    last_intent: Intent = Intent.OTHER
+    usage: Usage | None = None
+    outcomes: list[Any] = field(default_factory=list)
+    tool_summaries: list[dict[str, Any]] = field(default_factory=list)
+    history: list[dict[str, Any]] = field(default_factory=list)
+    next_idx: int = 1
+    repaired: bool = False
+    reasons: list[str] = field(default_factory=list)
 
 
 class ExecutionLoop:
-    """一次 ``run`` 处理一条工单；循环内部逐步落库，不做批量补写。"""
+    """有界循环；模型、工具表、钩子、审批闸门都可替换。"""
 
     def __init__(
         self,
         config: Config,
-        store: Any,
+        store: Database,
         model: ModelProvider,
         *,
-        registry: Any = None,
+        registry: ToolRegistry | None = None,
         approval_gate: ApprovalGate | None = None,
+        hooks: Hooks | None = None,
         clock: Callable[[], float] = time.monotonic,
+        listener: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
-        self.config = config
-        self.store = store
-        self.model = model
-        self.registry = registry if registry is not None else default_registry()
-        self.approval_gate = approval_gate or DenyAllApprovalGate()
-        self.clock = clock
+        self._config = config
+        self._store = store
+        self._model = model
+        self._registry = registry or default_registry()
+        self._gate = approval_gate or DenyAllApprovalGate()
+        self._hooks = hooks or build_default_hooks(config)
+        self._clock = clock
+        self._listener = listener
+        self._context = ContextBuilder(config)
+        self._prompt = get_prompt(config.prompt_version)
 
-    # ------------------------------------------------------------------- public
-    def run(self, payload: Mapping[str, Any]) -> RunResult:
-        started = self.clock()
+    # ------------------------------------------------------------------ public
+    def run(
+        self,
+        payload: dict[str, Any],
+        *,
+        dataset_hash: str | None = None,
+        source_run_id: str | None = None,
+    ) -> RunResult:
+        started = self._clock()
         try:
             ticket = TicketIn.from_payload(payload)
         except TicketValidationError as exc:
-            # 输入被拒时不建会话，避免脏数据进入 trace。
             return RunResult(
                 status=RunStatus.REJECTED,
-                stop_reason=StopReason.INVALID_INPUT,
+                stop_reason=StopReason.INPUT_INVALID,
                 steps=0,
-                latency_ms=self._elapsed_ms(started),
-                note=str(exc),
+                run_id=None,
+                answer=None,
+                note=f"{exc.code}: {exc.message}",
+                http_status=422,
+                prompt_version=self._config.prompt_version,
             )
 
-        state = _RunState(
-            run_id=self.store.create_session(ticket, self.config.as_mapping()),
-            ticket=ticket,
-            started_at=started,
-            deadline=started + self.config.wall_clock_s,
-        )
-        state.messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": ticket.text},
-        ]
-        self._write_turn(state, role="user", content=ticket.text)
+        try:
+            run_id = self._store.create_session(
+                ticket,
+                self._config.as_mapping(),
+                prompt_version=self._config.prompt_version,
+                dataset_hash=dataset_hash,
+                source_run_id=source_run_id,
+            )
+        except SessionConflict as exc:
+            return RunResult(
+                status=RunStatus.REJECTED,
+                stop_reason=StopReason.DUPLICATE_TICKET,
+                steps=0,
+                run_id=None,
+                answer=None,
+                note=f"duplicate_ticket: {exc}",
+                http_status=409,
+                prompt_version=self._config.prompt_version,
+            )
 
-        while state.steps < self.config.max_steps:
-            over, stop, note = self._check_limits(state)
-            if over:
-                return self._degrade(state, stop, note)
+        state = _State(run_id=run_id, ticket=ticket)
+        deadline = started + self._config.wall_clock_s
+        self._record_user_turn(state)
+
+        try:
+            result = self._loop(state, deadline)
+        except StoreError as exc:
+            # 持久化是硬失败：清理 running 后把错误交给进程边界（API → 500）。
+            self._best_effort_finish(state, RunStatus.DEGRADED, StopReason.UPSTREAM_ERROR, None, f"store_error: {exc}")
+            raise
+
+        latency_ms = max(0, int(round((self._clock() - started) * 1000)))
+        return self._finish(
+            state,
+            result.answer,
+            status=result.status,
+            stop_reason=result.stop_reason,
+            note=result.note,
+            latency_ms=latency_ms,
+            http_status=result.http_status,
+        )
+
+    # ------------------------------------------------------------------- inner
+    def _loop(self, state: _State, deadline: float) -> "_Outcome":
+        while True:
+            exceeded = self._exceeded(state, deadline)
+            if exceeded is not None:
+                return self._degrade(state, exceeded)
 
             state.steps += 1
-            request = ModelRequest(
-                messages=list(state.messages),
-                tools=self.registry.schema_list(),
-                step=state.steps,
-                remaining_ms=max(0, int((state.deadline - self.clock()) * 1000)),
-                run_id=state.run_id,
-            )
             try:
-                response = self.model.complete(request)
-            except Exception as exc:  # 上游失败不向调用方抛，降级为结构化结果
-                return self._degrade(
+                response = self._model.complete(self._request(state, deadline))
+            except InvalidModelOutput as exc:
+                self._append_turn(
                     state,
-                    StopReason.UPSTREAM_ERROR,
-                    f"模型调用失败：{type(exc).__name__}: {exc}",
+                    role="assistant",
+                    content=exc.raw_text or f"[invalid_output] {exc}",
                 )
+                if state.repaired:
+                    return self._degrade(state, StopReason.INVALID_OUTPUT, note=str(exc))
+                state.repaired = True
+                state.history.append({"role": "user", "content": REPAIR_INSTRUCTION})
+                continue
+            except ModelError as exc:
+                return self._degrade(state, StopReason.UPSTREAM_ERROR, note=str(exc))
 
-            state.usage = state.usage + response.usage
+            state.usage = response.usage if state.usage is None else state.usage + response.usage
             decision = response.decision
-            self._write_turn(
+            raw = response.raw_text or json.dumps(decision.to_dict(), ensure_ascii=False)
+            final = decision.final
+            self._append_turn(
                 state,
                 role="assistant",
-                content=json.dumps(decision.to_dict(), ensure_ascii=False),
+                content=raw,
                 usage=response.usage,
+                intent=None if final is None else final.intent.value,
+                confidence=None if final is None else final.confidence,
+                message_json=decision.to_dict(),
+                request_hash=_request_hash(self._request(state, deadline)),
             )
-            state.messages.append(
-                {"role": "assistant", "content": json.dumps(decision.to_dict(), ensure_ascii=False)}
+
+            # 预检只发生在第一次模型响应上：命中即丢弃本次响应里的工具请求。
+            self._emit("step", {"step": state.steps, "final": final is not None})
+            if state.steps == 1:
+                pre = policy.precheck(state.ticket, policy.classify_text(state.ticket.text))
+                if pre.hit:
+                    state.reasons.extend(pre.matched)
+                    return self._finalize_with_reason(state, str(pre.reason))
+
+            if final is not None:
+                return self._finalize(state, final, deadline)
+
+            blocked = self._run_tools(state, decision.tool_calls, deadline)
+            if blocked is not None:
+                return blocked
+            if len(state.outcomes) > 3 * self._config.max_steps:
+                return self._degrade(state, StopReason.MAX_STEPS, note="tool_calls_exceeded")
+
+    # ------------------------------------------------------------------- tools
+    def _run_tools(
+        self, state: _State, calls: Sequence[Any], deadline: float
+    ) -> "_Outcome | None":
+        for call in calls:
+            item = self._registry.get(call.name)
+            if item is None:
+                self._record_tool(
+                    state,
+                    call.name,
+                    call.arguments,
+                    ToolResult.failure("TOOL_UNAVAILABLE", f"未知工具：{call.name}"),
+                    0,
+                )
+                self._append_tool_turn(state, call.name, ToolResult.failure("TOOL_UNAVAILABLE", f"未知工具：{call.name}"))
+                continue
+
+            decision: HookDecision = self._hooks.pre_tool(
+                item.spec, call.arguments, run_id=state.run_id, step=state.steps
             )
+            if not decision.allowed:
+                # 第 2 优先级：钩子拦截 → 立即收尾为转人工，不执行、不占幂等键。
+                self._record_tool(
+                    state,
+                    call.name,
+                    call.arguments,
+                    ToolResult.failure("APPROVAL_REQUIRED", decision.reason or "APPROVAL_REQUIRED"),
+                    0,
+                    approval_required=True,
+                )
+                return self._finalize_with_reason(state, "IRREVERSIBLE_ACTION")
 
-            if decision.final is not None:
-                state.last_intent = decision.final.intent
-                return self._finalize(state, decision.final)
+            key = idempotency_key(state.ticket.ticket_id, call.name, call.arguments)
+            cached = self._store.find_tool_call(state.run_id, idempotency_key=key)
+            if cached is not None:
+                result = ToolResult.success(cached.result or {})
+                self._record_tool(
+                    state, call.name, call.arguments, result, cached.duration_ms,
+                    cached=True, idempotency_key=None, attempt_idx=2,
+                )
+                self._append_tool_turn(state, call.name, result)
+                continue
 
-            stop = self._run_tool_calls(state, decision.tool_calls)
-            if stop is not None:
-                return stop
-
-        return self._degrade(state, StopReason.MAX_STEPS, f"达到最大步数 {self.config.max_steps}")
-
-    # -------------------------------------------------------------------- steps
-    def _check_limits(self, state: _RunState) -> tuple[bool, StopReason, str]:
-        if state.usage.total_tokens >= self.config.token_budget:
-            return True, StopReason.TOKEN_BUDGET, (
-                f"累计 token {state.usage.total_tokens} 已达预算 {self.config.token_budget}"
+            self._emit(
+                "tool_call",
+                {"step": state.steps, "name": call.name, "args_digest": args_digest(call.arguments)},
             )
-        remaining = state.deadline - self.clock()
-        if remaining <= 0:
-            return True, StopReason.TIMEOUT, (
-                f"墙钟超时：预算 {self.config.wall_clock_s}s，剩余 {remaining:.3f}s"
+            context = ToolContext(
+                run_id=state.run_id,
+                user_id=state.ticket.user_id,
+                now=self._config.demo_now,
+                config=self._config,
+                store=self._store,
             )
-        return False, StopReason.FINALIZED, ""
-
-    def _run_tool_calls(self, state: _RunState, tool_calls: Sequence[Any]) -> RunResult | None:
-        for call in tool_calls:
-            if self.registry.get(call.name) is None:
-                # 未知工具同样落一条失败记录，便于审计模型乱编工具名。
-                outcome = self._execute(state, call.name, dict(call.arguments))
-            else:
-                if self.registry.is_irreversible(call.name):
-                    decision = self._ask_approval(state, call)
-                    if not decision.approved:
-                        answer = self._escalated_answer(
-                            intent=self._last_intent(state),
-                            reason="APPROVAL_REQUIRED",
-                        )
-                        return self._finish(state, answer, RunStatus.OK, StopReason.FINALIZED,
-                                            note="irreversible_action_denied")
-                outcome = self._execute(state, call.name, dict(call.arguments))
-
-            state.messages.append(
+            result, elapsed_ms = self._registry.execute(call.name, call.arguments, context)
+            self._emit(
+                "tool_result",
                 {
-                    "role": "tool",
-                    "name": outcome.name,
-                    "content": json.dumps(outcome.result.to_dict(), ensure_ascii=False),
-                }
+                    "step": state.steps,
+                    "name": call.name,
+                    "ok": result.ok,
+                    "error_code": None if result.error is None else result.error.code,
+                    "duration_ms": elapsed_ms,
+                },
             )
-            if not outcome.result.ok:
-                error = outcome.result.error
-                if error is not None and error.code == "STORE_WRITE_FAILED":
-                    # 落库失败属于进程级故障，不伪装成可重试的工具错误。
-                    raise StoreError("tool:" + outcome.name, error.message)
+            self._hooks.post_tool(
+                run_id=state.run_id,
+                name=call.name,
+                ok=result.ok,
+                duration_ms=elapsed_ms,
+                error_code=None if result.error is None else result.error.code,
+            )
+            self._record_tool(
+                state, call.name, call.arguments, result, elapsed_ms,
+                idempotency_key=key if result.ok else None,
+            )
+            self._append_tool_turn(state, call.name, result)
         return None
 
-    def _execute(self, state: _RunState, name: str, arguments: dict[str, Any]) -> _ToolOutcome:
-        context = ToolContext(
-            run_id=state.run_id,
-            user_id=state.ticket.user_id,
-            now=self.config.demo_now,
-            config=self.config,
-            store=self.store,
+    # ---------------------------------------------------------------- finalize
+    def _finalize(self, state: _State, answer: FinalAnswer, deadline: float) -> "_Outcome":
+        facts = policy.PolicyFacts.from_outcomes(state.outcomes)
+        outcome = policy.evaluate(
+            answer,
+            facts=facts,
+            outcomes=state.outcomes,
+            text=state.ticket.text,
+            now=self._config.demo_now,
+            refund_limit_cents=self._config.refund_auto_limit_cents,
+            refund_window_days=self._config.refund_window_days,
         )
-        result, duration_ms = self.registry.execute(name, arguments, context)
+        state.reasons.extend(outcome.reasons)
+        note = None
+        if outcome.draft_replaced:
+            note = "draft_replaced:DRAFT_RISK"
+        if outcome.answer.needs_human:
+            note = self._maybe_create_draft(state, outcome.answer) or note
+        return _Outcome(
+            answer=outcome.answer,
+            status=RunStatus.OK,
+            stop_reason=StopReason.FINALIZED,
+            note=note,
+        )
+
+    def _finalize_with_reason(self, state: _State, reason: str) -> "_Outcome":
+        """预检命中 / 钩子拦截：不执行工具，直接给固定安全草稿。"""
+        draft = policy.safe_draft(reason) if reason != "IRREVERSIBLE_ACTION" else ESCALATION_DRAFT
+        answer = FinalAnswer(
+            intent=policy.classify_text(state.ticket.text),
+            confidence=1.0 if reason != "IRREVERSIBLE_ACTION" else 0.0,
+            slots={},
+            reply_draft=draft,
+            needs_human=True,
+            escalate_reason=reason,
+            used_tools=[item.name for item in state.outcomes],
+        )
+        state.reasons.append(reason)
+        self._maybe_create_draft(state, answer)
+        return _Outcome(
+            answer=answer,
+            status=RunStatus.OK,
+            stop_reason=StopReason.FINALIZED,
+            note=f"precheck:{reason}" if reason != "IRREVERSIBLE_ACTION" else "hook:APPROVAL_REQUIRED",
+        )
+
+    def _maybe_create_draft(self, state: _State, answer: FinalAnswer) -> str | None:
+        """转人工草稿落库：不可逆，必须过审批闸门；拒绝不改变原因，只留痕。"""
+        arguments = {"validated_answer": answer.to_dict(), "run_id": state.run_id}
+        decision = self._gate.request_approval(
+            tool_name="create_ticket_draft", arguments=arguments, run_id=state.run_id
+        )
+        if not decision.approved:
+            return f"irreversible_action_denied: {decision.reason or 'rejected'}"
+        result, elapsed_ms = self._registry.execute(
+            "create_ticket_draft",
+            arguments,
+            ToolContext(
+                run_id=state.run_id,
+                user_id=state.ticket.user_id,
+                now=self._config.demo_now,
+                config=self._config,
+                store=self._store,
+            ),
+        )
+        self._record_tool(
+            state, "create_ticket_draft", arguments, result, elapsed_ms,
+            idempotency_key=None, attempt_idx=1,
+        )
+        return None if result.ok else f"draft_failed:{result.error.code if result.error else 'unknown'}"
+
+    # ----------------------------------------------------------------- degrade
+    def _degrade(self, state: _State, reason: StopReason, *, note: str | None = None) -> "_Outcome":
+        answer = FinalAnswer(
+            intent=policy.classify_text(state.ticket.text),
+            confidence=0.0,
+            slots={},
+            reply_draft=DEGRADED_DRAFT,
+            needs_human=True,
+            escalate_reason=STOP_REASON_TO_ESCALATION.get(reason, str(reason).upper()),
+            used_tools=[item.name for item in state.outcomes],
+        )
+        return _Outcome(
+            answer=answer,
+            status=RunStatus.DEGRADED,
+            stop_reason=reason,
+            note=note,
+        )
+
+    # ------------------------------------------------------------------ events
+    def _emit(self, event: str, data: dict[str, Any]) -> None:
+        """SSE 用的旁路通知：失败绝不影响主流程。"""
+        if self._listener is None:
+            return
+        try:
+            self._listener(event, data)
+        except Exception:  # noqa: BLE001 - 观察者不能拖垮业务
+            return None
+
+    # ------------------------------------------------------------------ limits
+    def _exceeded(self, state: _State, deadline: float) -> StopReason | None:
+        # 顺序即优先级：墙钟优先（超时要优先记为 timeout），再 token，最后步数。
+        if deadline - self._clock() <= 0:
+            return StopReason.TIMEOUT
+        if (state.usage.total_tokens if state.usage else 0) >= self._config.token_budget:
+            return StopReason.TOKEN_BUDGET
+        if state.steps >= self._config.max_steps:
+            return StopReason.MAX_STEPS
+        return None
+
+    def _request(self, state: _State, deadline: float) -> ModelRequest:
+        built = self._context.build(
+            system_prompt=self._prompt,
+            user_text=state.ticket.text,
+            history=state.history,
+            summary=state_summary(state),
+        )
+        return ModelRequest(
+            messages=list(built.messages),
+            tools=self._registry.schema_list(),
+            step=state.steps,
+            remaining_ms=max(0, int((deadline - self._clock()) * 1000)),
+            run_id=state.run_id,
+        )
+
+    # ---------------------------------------------------------------- persist
+    def _record_user_turn(self, state: _State) -> None:
+        self._store.append_turn(
+            Turn(
+                session_id=state.run_id,
+                idx=0,
+                role="user",
+                content=state.ticket.text,
+                message_json=state.ticket.to_dict(),
+            )
+        )
+
+    def _append_turn(self, state: _State, *, role: str, content: str, **kwargs: Any) -> None:
+        self._store.append_turn(
+            Turn(session_id=state.run_id, idx=state.next_idx, role=role, content=content, **kwargs)
+        )
+        state.next_idx += 1
+        state.history.append({"role": role, "content": content})
+
+    def _append_tool_turn(self, state: _State, name: str, result: ToolResult) -> None:
+        self._append_turn(
+            state,
+            role="tool",
+            content=json.dumps({"name": name, **result.to_dict()}, ensure_ascii=False),
+        )
+
+    def _record_tool(
+        self,
+        state: _State,
+        name: str,
+        arguments: dict[str, Any],
+        result: ToolResult,
+        duration_ms: int,
+        *,
+        cached: bool = False,
+        approval_required: bool = False,
+        idempotency_key: str | None = None,
+        attempt_idx: int = 1,
+    ) -> None:
         record = ToolCallRecord(
             session_id=state.run_id,
-            call_id=uuid.uuid4().hex,
+            call_id=f"{state.next_idx}-{attempt_idx}-{len(state.outcomes) + 1}",
             tool_name=name,
             arguments=dict(arguments),
             ok=result.ok,
             error_code=None if result.error is None else result.error.code,
             error_message=None if result.error is None else result.error.message,
             duration_ms=duration_ms,
-            created_at=_now_iso(),
+            step=state.steps,
+            cached=cached,
+            approval_required=approval_required,
+            attempt_idx=attempt_idx,
+            idempotency_key=idempotency_key,
+            result=result.data,
         )
-        self.store.record_tool_call(record)  # 每次调用即落库，不留到最后补写
-        self._write_turn(
-            state,
-            role="tool",
-            content=json.dumps({"tool": name, "result": result.to_dict()}, ensure_ascii=False),
-        )
-        outcome = _ToolOutcome(name=name, arguments=dict(arguments), result=result, record=record)
-        state.outcomes.append(outcome)
-        state.records.append(record)
-        return outcome
-
-    # ----------------------------------------------------------------- finalize
-    def _finalize(self, state: _RunState, answer: FinalAnswer) -> RunResult:
-        answer = self._apply_policy(answer, state)
-        self.store.save_draft(state.run_id, answer.to_dict())
-
-        note = None
-        if answer.needs_human:
-            gate_decision = self._ask_approval(
-                state,
-                _DraftCall(
-                    name="create_ticket_draft",
-                    arguments={"run_id": state.run_id, "validated_answer": answer.to_dict()},
-                ),
-            )
-            if not gate_decision.approved:
-                answer = answer.with_escalation("APPROVAL_REQUIRED")
-                self.store.save_draft(state.run_id, answer.to_dict())
-                note = "irreversible_action_denied: " + (gate_decision.reason or "")
-            else:
-                outcome = self._execute(
-                    state,
-                    "create_ticket_draft",
-                    {"run_id": state.run_id, "validated_answer": answer.to_dict()},
-                )
-                if not outcome.result.ok:
-                    error = outcome.result.error
-                    if error is not None and error.code == "STORE_WRITE_FAILED":
-                        raise StoreError("create_ticket_draft", error.message)
-                    answer = answer.with_escalation(
-                        error.code if error is not None else "TOOL_FAILED"
-                    )
-                    note = "create_ticket_draft failed"
-
-        return self._finish(state, answer, RunStatus.OK, StopReason.FINALIZED, note=note)
-
-    def _apply_policy(self, answer: FinalAnswer, state: _RunState) -> FinalAnswer:
-        """程序侧窄规则：只做“升级为转人工”，不替模型改事实、不改金额。"""
-        if answer.needs_human:
-            return answer
-        for outcome in state.outcomes:
-            error = outcome.result.error
-            if error is not None and error.code == "ORDER_NOT_FOUND":
-                return answer.with_escalation("ORDER_NOT_FOUND")
-            if outcome.name != "refund_preview":
-                continue
-            if error is not None and error.code == "REFUND_NOT_ALLOWED":
-                return answer.with_escalation("REFUND_NOT_ALLOWED")
-            data = outcome.result.data or {}
-            if data.get("allowed") is False:
-                return answer.with_escalation(str(data.get("policy_reason") or "REFUND_NOT_ALLOWED"))
-        if answer.intent is Intent.OTHER and answer.confidence < 0.5:
-            return answer.with_escalation("LOW_CONFIDENCE")
-        return answer
-
-    # ---------------------------------------------------------------- terminate
-    def _degrade(self, state: _RunState, stop: StopReason, note: str) -> RunResult:
-        answer = self._escalated_answer(
-            intent=self._last_intent(state),
-            reason=_LIMIT_REASONS.get(stop, "STEP_LIMIT"),
-        )
-        return self._finish(state, answer, RunStatus.DEGRADED, stop, note=note)
+        self._store.record_tool_call(record)
+        state.outcomes.append(_Outcome(name=name, result=result))
+        state.tool_summaries.append(record.summary())
 
     def _finish(
         self,
-        state: _RunState,
-        answer: FinalAnswer,
-        status: RunStatus,
-        stop: StopReason,
+        state: _State,
+        answer: FinalAnswer | None,
         *,
-        note: str | None = None,
+        status: RunStatus,
+        stop_reason: StopReason,
+        note: str | None,
+        latency_ms: int,
+        http_status: int = 200,
     ) -> RunResult:
-        result = {
-            "answer": answer.to_dict(),
-            "stop_reason": stop.value,
-            "steps": state.steps,
-            "tool_calls": [record.tool_name for record in state.records],
-            "note": note,
-        }
-        self.store.finish_session(
-            state.run_id, status=status.value, stop_reason=stop.value, result=result
+        if answer is not None:
+            self._store.save_draft(state.run_id, answer.to_dict())
+        usage = state.usage or Usage(source="missing")
+        cost = usage.cost_cny
+        if cost is None:
+            cost = None  # scripted / 估算用量不折成钱，避免与真实成本混排
+        summary = state_summary(state)
+        self._store.finish_session(
+            state.run_id,
+            status=status.value,
+            stop_reason=stop_reason.value,
+            result={
+                "answer": None if answer is None else answer.to_dict(),
+                "stop_reason": stop_reason.value,
+                "steps": state.steps,
+                "tool_calls": [item.name for item in state.outcomes],
+                "reasons": list(dict.fromkeys(state.reasons)),
+                "note": note,
+            },
+            needs_human=None if answer is None else answer.needs_human,
+            cost_cny=None if answer is None else cost,
+            latency_ms=latency_ms,
+            summary=summary.to_dict(),
         )
         return RunResult(
             status=status,
-            stop_reason=stop,
+            stop_reason=stop_reason,
             steps=state.steps,
             run_id=state.run_id,
             answer=answer,
-            tool_calls=list(state.records),
-            usage=state.usage,
-            latency_ms=self._elapsed_ms(state.started_at),
+            tool_calls=list(state.tool_summaries),
+            usage=usage,
+            latency_ms=latency_ms,
             note=note,
+            http_status=http_status,
+            prompt_version=self._config.prompt_version,
         )
 
-    def _ask_approval(self, state: _RunState, call: Any) -> ApprovalDecision:
-        return self.approval_gate.request_approval(
-            tool_name=call.name,
-            arguments=dict(call.arguments),
-            run_id=state.run_id,
-        )
-
-    def _escalated_answer(self, intent: Intent, reason: str) -> FinalAnswer:
-        return FinalAnswer(
-            intent=intent,
-            confidence=0.0,
-            slots={},
-            reply_draft=_DEGRADED_DRAFT,
-            needs_human=True,
-            escalate_reason=reason,
-            used_tools=[],
-        )
-
-    # ------------------------------------------------------------------- helpers
-    def _write_turn(
+    def _best_effort_finish(
         self,
-        state: _RunState,
-        *,
-        role: str,
-        content: str,
-        usage: Usage | None = None,
+        state: _State,
+        status: RunStatus,
+        stop_reason: StopReason,
+        answer: FinalAnswer | None,
+        note: str,
     ) -> None:
-        self.store.append_turn(
-            Turn(
-                session_id=state.run_id,
-                idx=state.turns,
-                role=role,
-                content=content,
-                usage=usage,
-                created_at=_now_iso(),
+        try:
+            self._store.finish_session(
+                state.run_id,
+                status=status.value,
+                stop_reason=stop_reason.value,
+                result={"note": note, "steps": state.steps},
+                needs_human=True,
             )
-        )
-        state.turns += 1
-
-    def _last_intent(self, state: _RunState) -> Intent:
-        """降级时沿用模型已给出的意图；尚未给出最终答案则记 other。"""
-        return state.last_intent
-
-    def _elapsed_ms(self, started: float) -> int:
-        return max(0, int(round((self.clock() - started) * 1000)))
+        except StoreError:
+            pass
 
 
 @dataclass(frozen=True, slots=True)
-class _DraftCall:
-    name: str
-    arguments: dict[str, Any]
+class _Outcome:
+    """内部结果载体：既表示“工具执行记录”，也表示“本轮终局”。"""
+
+    name: str = ""
+    result: ToolResult = field(default_factory=lambda: ToolResult.success({}))
+    answer: FinalAnswer | None = None
+    status: RunStatus = RunStatus.OK
+    stop_reason: StopReason = StopReason.FINALIZED
+    note: str | None = None
+    http_status: int = 200
+
+    def summary(self) -> dict[str, Any]:
+        return {"name": self.name, "ok": self.result.ok}
 
 
-def _now_iso() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+def state_summary(state: _State) -> SessionSummary:
+    """从工具序列与历史推出摘要（确定性，只依赖已有消息）。"""
+    tools: list[str] = []
+    for item in state.history:
+        payload = _loads(str(item.get("content") or ""))
+        if isinstance(payload, dict) and isinstance(payload.get("name"), str):
+            if payload["name"] not in tools:
+                tools.append(payload["name"])
+    return SessionSummary(
+        intent_history=[policy.classify_text(state.ticket.text).value],
+        slots={"order_id": state.ticket.order_id} if state.ticket.order_id else {},
+        tools_called=tools,
+        last_decision="",
+        open_questions=[],
+        need_summary=len(state.history) > 0,
+    )
+
+
+def _loads(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _request_hash(request: ModelRequest) -> str:
+    payload = json.dumps(
+        {"messages": request.messages, "step": request.step}, ensure_ascii=False, sort_keys=True
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+__all__ = [
+    "DEGRADED_DRAFT",
+    "ESCALATION_DRAFT",
+    "ExecutionLoop",
+    "STOP_REASON_TO_ESCALATION",
+    "Session",
+    "Usage",
+    "Intent",
+    "prompt_hash",
+]

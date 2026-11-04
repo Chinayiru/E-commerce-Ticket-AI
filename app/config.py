@@ -30,9 +30,18 @@ ENV_FIELDS: dict[str, str] = {
     "REFUND_WINDOW_DAYS": "refund_window_days",
     "OPENAI_BASE_URL": "base_url",
     "OPENAI_API_KEY": "api_key",
+    "WINDOW_TURNS": "window_turns",
+    "MAX_OUTPUT_TOKENS": "max_output_tokens",
+    "LOG_DIR": "log_dir",
+    "PRICE_IN_USD_PER_MTOK": "price_in_usd_per_mtok",
+    "PRICE_OUT_USD_PER_MTOK": "price_out_usd_per_mtok",
+    "USD_CNY_FX": "usd_cny_fx",
+    "PROMPT_VERSION": "prompt_version",
 }
 
 ALLOWED_PROVIDERS = ("scripted", "openai")
+#: 提示词版本封闭集（IMPLEMENTATION §6.1）。
+ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3")
 
 
 class ConfigError(ValueError):
@@ -59,6 +68,27 @@ class Config:
     refund_window_days: int = 7
     base_url: str = "https://api.openai.com/v1"
     api_key: str | None = None
+    #: 上下文折叠窗口（DESIGN §5.3）：更早的轮次折叠为确定性摘要。
+    window_turns: int = 6
+    #: 单次响应输出上限，调用前用于“下一输出额度”估算（IMPLEMENTATION §5）。
+    max_output_tokens: int = 800
+    #: 生命周期钩子的 JSON 审计目录（DESIGN §5.5）；不落库，避免第五张表。
+    log_dir: str = "logs"
+    #: 计费参数：示例单价与汇率（DESIGN §11 的非功能约束），仅用于成本估算。
+    price_in_usd_per_mtok: float = 0.15
+    price_out_usd_per_mtok: float = 0.60
+    usd_cny_fx: float = 7.2
+    #: 提示词版本（IMPLEMENTATION §6.1）：v1 / v2 / v3。
+    prompt_version: str = "v3"
+
+    # --------------------------------------------------------------- 成本计算
+    def estimate_cost_cny(self, input_tokens: int, output_tokens: int) -> float:
+        """按示例单价与汇率折算人民币，只用于报告，不作为硬上限。"""
+        usd = (
+            input_tokens * self.price_in_usd_per_mtok
+            + output_tokens * self.price_out_usd_per_mtok
+        ) / 1_000_000
+        return round(usd * self.usd_cny_fx, 6)
 
     def with_overrides(self, **overrides: Any) -> "Config":
         """返回替换后的新配置，走与 ``load_config`` 相同的校验。"""
@@ -82,6 +112,13 @@ class Config:
             "refund_window_days": self.refund_window_days,
             "base_url": self.base_url,
             "api_key_configured": bool(self.api_key),
+            "window_turns": self.window_turns,
+            "max_output_tokens": self.max_output_tokens,
+            "log_dir": self.log_dir,
+            "price_in_usd_per_mtok": self.price_in_usd_per_mtok,
+            "price_out_usd_per_mtok": self.price_out_usd_per_mtok,
+            "usd_cny_fx": self.usd_cny_fx,
+            "prompt_version": self.prompt_version,
         }
 
 
@@ -145,6 +182,21 @@ def _build(raw: Mapping[str, Any], overrides: Mapping[str, Any]) -> Config:
     )
     refund_window_days = _as_int(merged, "refund_window_days", "REFUND_WINDOW_DAYS", 7, minimum=0)
     base_url = _as_str(merged, "base_url", "OPENAI_BASE_URL", "https://api.openai.com/v1")
+    window_turns = _as_int(merged, "window_turns", "WINDOW_TURNS", 6, minimum=2)
+    max_output_tokens = _as_int(merged, "max_output_tokens", "MAX_OUTPUT_TOKENS", 800, minimum=1)
+    log_dir = _as_str(merged, "log_dir", "LOG_DIR", "logs")
+    price_in_usd_per_mtok = _as_float(
+        merged, "price_in_usd_per_mtok", "PRICE_IN_USD_PER_MTOK", 0.15, minimum=0.0
+    )
+    price_out_usd_per_mtok = _as_float(
+        merged, "price_out_usd_per_mtok", "PRICE_OUT_USD_PER_MTOK", 0.60, minimum=0.0
+    )
+    usd_cny_fx = _as_float(merged, "usd_cny_fx", "USD_CNY_FX", 7.2, minimum=0.0)
+    prompt_version = _as_str(merged, "prompt_version", "PROMPT_VERSION", "v3")
+    if prompt_version not in ALLOWED_PROMPT_VERSIONS:
+        raise ConfigError(
+            "PROMPT_VERSION", f"只支持 {ALLOWED_PROMPT_VERSIONS}，收到 {prompt_version!r}"
+        )
 
     return Config(
         provider=provider,
@@ -158,6 +210,13 @@ def _build(raw: Mapping[str, Any], overrides: Mapping[str, Any]) -> Config:
         refund_window_days=refund_window_days,
         base_url=base_url,
         api_key=api_key,
+        window_turns=window_turns,
+        max_output_tokens=max_output_tokens,
+        log_dir=log_dir,
+        price_in_usd_per_mtok=price_in_usd_per_mtok,
+        price_out_usd_per_mtok=price_out_usd_per_mtok,
+        usd_cny_fx=usd_cny_fx,
+        prompt_version=prompt_version,
     )
 
 
@@ -202,6 +261,7 @@ def _as_float(
     env_name: str,
     default: float,
     *,
+    minimum: float | None = None,
     minimum_exclusive: float | None = None,
 ) -> float:
     value = raw.get(field, default)
@@ -211,6 +271,8 @@ def _as_float(
         number = float(value)
     except (TypeError, ValueError) as exc:
         raise ConfigError(env_name, f"应为数字，收到 {value!r}") from exc
+    if minimum is not None and number < minimum:
+        raise ConfigError(env_name, f"必须 >= {minimum}，收到 {number}")
     if minimum_exclusive is not None and number <= minimum_exclusive:
         raise ConfigError(env_name, f"必须 > {minimum_exclusive}，收到 {number}")
     return number

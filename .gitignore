@@ -6,3 +6,6 @@ __pycache__/
 *.db
 *.db-journal
 .idea/
+logs/
+reports/*.db
+reports/logs/
