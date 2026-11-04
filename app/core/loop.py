@@ -79,6 +79,9 @@ class _State:
     next_idx: int = 1
     repaired: bool = False
     reasons: list[str] = field(default_factory=list)
+    #: 预检只在第一份**解析成功**的决策上跑；用一次 JSON 修复后 steps 已变成 2，
+    #: 若用 steps==1 判断，修复过的运行会漏掉 0a–0d 预检（真机曾因此在投诉单上调出工具）。
+    prechecked: bool = False
 
 
 class ExecutionLoop:
@@ -211,9 +214,10 @@ class ExecutionLoop:
                 request_hash=_request_hash(self._request(state, deadline)),
             )
 
-            # 预检只发生在第一次模型响应上：命中即丢弃本次响应里的工具请求。
+            # 预检只发生在第一份解析成功的响应上：命中即丢弃本次响应里的工具请求。
             self._emit("step", {"step": state.steps, "final": final is not None})
-            if state.steps == 1:
+            if not state.prechecked:
+                state.prechecked = True
                 pre = policy.precheck(state.ticket, policy.classify_text(state.ticket.text))
                 if pre.hit:
                     state.reasons.extend(pre.matched)

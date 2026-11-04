@@ -185,3 +185,42 @@ R2→R3 只有策略一行改动，intent/escalation 却各跳一格，说明单
 
 - `cost_cny` 由 `Config.estimate_cost_cny` 按 0.15 / 0.60 USD per Mtok、汇率 7.2 估算，**该价目不是代理商的真实价格**（响应 usage 里有 `credit` 字段，单位未核实），只能看量级。
 - P95 含推理思考耗时，故真实模型 P95 稳定在 8–15 s，远超 `wall_clock_s=30` 之外的目标线（< 3 s），这是推理型模型的结构性代价，不是代码 bug。
+
+### 8.7 复核轮（2026-11-05，逐条复跑残留项）
+
+按“先复跑确认、一致则关闭、不一致则修代码、不改标签”处理 8.5 的三条：
+
+| case_id | 复跑结果 | 结论 |
+| --- | --- | --- |
+| dev-other-simple-2 | intent=other、tools=[]、nh=False、reason=None，与标注一致 | **关闭**（R3 那次是模型自述低置信的偶发，不是代码缺陷） |
+| dev-other-complex-1 | intent=other、tools=['query_order']、nh=True、ORDER_NOT_FOUND，与标注一致 | **关闭**（R3 那次多调 check_logistics 同为偶发） |
+| dev-shipping-complex-3 | intent 由 other 修为 shipping_urge（提示词加“到货快慢/签收时间不符归 shipping_urge”），但 nh 仍为 False | 意图项**已修**；转人工项**按设计不开**——`DELIVERY_DISPUTE` 不在 DESIGN §9.1 的封闭原因表内，改标签或加规则都超出本次授权，如实记为标签与设计的冲突 |
+
+复核轮顺带修掉一个真机才暴露的缺陷：**预检在 JSON 修复后被跳过**。原实现用 `state.steps == 1` 判断“是否首次响应”，
+一次 JSON 修复会让 steps 变成 2，于是 0a–0d 预检整段失效——真机上表现为投诉单仍去调 `query_order`/`check_logistics`（tools 0.9583）。
+改为 `state.prechecked` 一次性标志后，tools 回到 1.0000。这条属 A 类之外的“循环控制”缺陷，不是模型问题。
+
+复核轮两次全量（同条件）：
+
+| 轮次 | 改动 | intent | tools | args | escalation | degraded | P95 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| R4 | 提示词补 shipping 判定措辞 | 1.0000 | 0.9583 | 1.0000 | 0.9167 | 0 | 12890 ms |
+| R5 | 预检改用 `prechecked` 标志 | 1.0000 | 1.0000 | 1.0000 | 0.9167 | 0 | 11078 ms |
+
+R5 的 2 条转人工不一致：`dev-shipping-complex-3`（标签要求 DELIVERY_DISPUTE，设计无此规则）与
+`dev-other-simple-1`（other 低置信被策略第 9 条判转人工，标签标不转）。两者都是**标签与 DESIGN 的冲突**，不是代码回归，
+按“不改标签”处理，留待业主裁定口径。
+
+### 8.8 drafts_50 等级标注（实现者初筛）
+
+`scripts/annotate_drafts.py` 按固定规则标注 50 条，写入 `data/drafts_50.jsonl` 的 `human_grade` / `grade_reason` / `annotator`：
+
+| 档 | 条数 | 主要理由 |
+| --- | --- | --- |
+| A | 30 | 要素齐全、无承诺、无写操作声称 |
+| B | 15 | 缺要素：状态说明 5、下一步 5、追问 5 |
+| C | 5 | 声称“已登记退款/已改地址”等写操作已执行（本版只产出草稿） |
+
+**口径声明**：这批标注由实现者按规则初筛（`annotator=implementer-rule-pass-1`），不是业务方独立复核，
+因此 60% 只能读作“实现者初筛通过率”，不能写成“人工采纳率”。真正的采纳率需业主或客服抽样复核后重算。
+明细见 `reports/drafts-annotation.md`。
