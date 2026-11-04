@@ -38,5 +38,11 @@
 
 ## 当前状态
 
-截至2026-11-04，本目录仍只有文档。新增实现规格和面试评审不代表代码已完成；所有CLI/API/评估命令均为目标接口。
+截至2026-11-04，W1–W3 的实现与离线验收已完成，W4 文档与演示产物随本次提交同步。
+
+- 代码：`app/`（六组件：config / schemas / store / tools / core / llm + api / cli / eval）、`scripts/`（数据集、评估、泄漏检查、证据收集、演示）、`tests/test_acceptance.py`（AC01–AC21 共 22 个测试）。
+- 验收：`python -m pytest tests -q` → 22 passed；证据索引见 `reports/evidence-index.md`（每条 AC 附 run_id）。
+- 数据集：`data/eval_cases.jsonl` 24 条、`data/holdout.jsonl` 12 条、`data/drafts_50.jsonl` 50 条；题干泄漏检查 `scripts/check_leakage.py` → ok。
+- 指标口径见 [DESIGN.md](DESIGN.md) 第 10 章；当前报告 `provider=scripted`，**脚本数字不代表模型能力**。
+- 阻塞：真实模型（`OPENAI_API_KEY` / `OPENAI_BASE_URL`）未提供，真实模型基线与单位成本待实测；`drafts_50` 的人工 A/B/C 档评分无人复核，人工采纳率写“待实测”。
 

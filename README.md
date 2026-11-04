@@ -1,13 +1,14 @@
-# 电商售后工单处理 Agent · 文档集
+# 电商售后工单处理 Agent
 
 > 一条工单进来 → 意图分类 + 回复草稿；不可逆操作转人工；全程可追踪、可回放、可量化迭代。
 > 不是通用 Agent，不是聊天机器人。
 
-**本目录只有文档，没有实现代码、数据集和评估产物。目前适合作为方案设计材料，尚不能作为已完成开发项目的证明。** 它定义的是"要做到什么、什么不许做、怎样算做完"，
-代码按这些约束去写；反过来，任何与设计文档冲突的代码都算 bug。
+**当前状态：W1（骨架与离线验收）、W2（上下文/钩子/策略/持久化）、W3（24 条回归集、评估报告、Bad Case 归因入口）、W4（文档与演示）已实现，验收以 [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) 的 AC01–AC21 为准。**
+全部指标来自离线桩 `provider=scripted`；真实模型基线与单位成本待实测（缺 `OPENAI_API_KEY`/`OPENAI_BASE_URL`），两者不得混排。
 
 | 我想…… | 去看 |
 | --- | --- |
+| 跑起来看结果 | 下面「快速开始」；验收证据见 [reports/evidence-index.md](reports/evidence-index.md) |
 | 知道这项目到底做什么、不做什么 | [docs/DESIGN.md](docs/DESIGN.md) 第 1–2 章（10 条非目标 + 边界三问） |
 | 知道每个模块为什么存在、边界在哪 | [docs/DESIGN.md](docs/DESIGN.md) 第 5 章（六组件契约） |
 | 知道指标怎么算、怎么防自欺 | [docs/DESIGN.md](docs/DESIGN.md) 第 10 章（口径与防作弊条款） |
@@ -35,9 +36,41 @@
 
 ---
 
+## 快速开始
+
+```bash
+# 0) 依赖：Python 3.12+，pip install fastapi uvicorn httpx pytest
+# 1) 验收（AC01–AC21，离线，不需要 API Key）
+$env:PYTHONPATH='.'; python -m pytest tests -q          # 22 passed
+
+# 2) 跑一条工单（scripted：这里用脚本替代模型）
+python -m app.cli run --ticket-id t-000001 --user-id U001 \
+  --text "订单 O1001 一直没发货，帮我退了" --order-id O1001 \
+  --script scripts/demo_script.json
+
+# 3) 看 trace（四张表 + 逐步事件）
+python -m app.cli trace <run_id>
+
+# 4) 评估与证据
+python scripts/seed_datasets.py         # 24 / 12 / 50 条数据集
+python scripts/run_eval.py --out reports
+python scripts/check_leakage.py         # 题干泄漏检查（ok=true 才算过）
+python scripts/collect_evidence.py      # 生成 reports/evidence-index.md
+
+# 5) HTTP / SSE
+python -m app.cli serve --port 8000
+#   POST /v1/tickets  GET /v1/runs/{run_id}  POST /v1/tickets/stream
+```
+
+`provider=scripted` 的数字只证明“循环、工具、落库、策略、验收链路是通的”，
+不代表模型能力；真实模型需要 `OPENAI_API_KEY`（可选 `OPENAI_BASE_URL`）后
+`python -m app.cli eval --provider openai`。
+
+---
+
 ## 六组件：一组件一文件，禁止跨层直连
 
-下表是**实现时的目标布局**（本仓库不包含这些文件，布局本身是约束的一部分）：
+下表是实际布局（`app/` 下按组件分文件，跨层直连被检查项约束）：
 
 | 组件 | 目标文件 | 它唯一负责的事 | 它不许做的事 |
 | --- | --- | --- | --- |
@@ -128,13 +161,13 @@ trace 记四件事：用了哪个工具、参数是什么、上下文里有什�
 
 | 指标 | 目标 | 当前状态 | 判定口径 |
 | --- | --- | --- | --- |
-| 24 条分类准确率 | 迭代后需高于初始 | 待实测（无实现、无 Key） | `intent_pred == intent_gold` |
-| 24 条工具调用正确率 | 同上 | 待实测 | 期望集合与实调集合双向相等（不含 `create_ticket_draft`） |
-| 24条参数正确率 | 观察逐例变化 | 待实测 | 参数逐键比对、金额整数分精确匹配，错误/越权尝试不能被一次正确调用抵消 |
-| 转人工判定 | 必转安全案例不得漏转，同时关注误转 | 待实测 | 对照标注报告TP/FP/FN/TN及自动草稿覆盖率 |
-| 50条草稿人工采纳率（A档） | 观察真实变化，不预设提升 | 待实测 | 人工核对事实、语义、要素和承诺；自动要素通过率另列 |
-| 单条成本 | < ¥0.005目标 | 待实测 | 每百万单价需除1,000,000；缺usage成本为null，记录价格来源 |
-| P95 延迟 | < 3 s | 待实测 | 端到端 wall clock |
+| 24 条分类准确率 | 迭代后需高于初始 | 1.00（scripted，开发集；不是模型能力） | `intent_pred == intent_gold` |
+| 24 条工具调用正确率 | 同上 | 1.00（scripted） | 期望集合与实调集合双向相等（不含 `create_ticket_draft`） |
+| 24条参数正确率 | 观察逐例变化 | 1.00（scripted） | 参数逐键比对、金额整数分精确匹配，错误/越权尝试不能被一次正确调用抵消 |
+| 转人工判定 | 必转安全案例不得漏转，同时关注误转 | 24/24（scripted；改地址 6/6 单列） | 对照标注报告TP/FP/FN/TN及自动草稿覆盖率 |
+| 50条草稿人工采纳率（A档） | 观察真实变化，不预设提升 | 待实测（无人工复核） | 人工核对事实、语义、要素和承诺；自动要素通过率另列 |
+| 单条成本 | < ¥0.005目标 | 待实测（scripted 不计费） | 每百万单价需除1,000,000；缺usage成本为null，记录价格来源 |
+| P95 延迟 | < 3 s | 63 ms（scripted，本机） | 端到端 wall clock |
 
 三条数字纪律（违反任何一条，报告作废）：
 
