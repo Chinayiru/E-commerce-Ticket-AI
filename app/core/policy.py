@@ -80,6 +80,18 @@ class PolicyOutcome:
     draft_replaced: bool = False
 
 
+#: 签收争议的特征片段：签收时间/签收状态与用户实际收到情况不一致。
+_DISPUTE_RE = re.compile(
+    r"(签收时间.{0,12}(不一致|不符|不对)|没收到.{0,12}(显示|写着).{0,8}(已签收|已送达)"
+    r"|(显示|明明).{0,8}(已签收|已送达).{0,12}(没收到|没见到|没拿到))"
+)
+
+
+def delivery_dispute(text: str) -> bool:
+    """是否属于“签收事实有争议”，需要人工核实而不是自动回复。"""
+    return bool(_DISPUTE_RE.search(text or ""))
+
+
 def order_candidates(text: str) -> tuple[str, ...]:
     """正文中的订单号候选，按出现顺序去重并大写。"""
     seen: list[str] = []
@@ -240,6 +252,11 @@ def evaluate(
             reasons.append("ADDRESS_AFTER_SHIP")
         else:
             reasons.append("ADDRESS_CHANGE")
+
+    # 签收事实与物流记录矛盾（例如“显示已签收但我没收到”）：属需要人工向承运方核实的争议，
+    # 与“投诉/追责”不同——投诉走 0a，这里只在 shipping_urge 且没有赔偿诉求时命中。
+    if answer.intent == Intent.SHIPPING_URGE and delivery_dispute(text):
+        reasons.append("DELIVERY_DISPUTE")
 
     if answer.intent == Intent.OTHER and answer.confidence < 0.5:
         reasons.append("LOW_CONFIDENCE")

@@ -257,7 +257,8 @@ DEV_CASES: list[dict[str, Any]] = [
         text="你们客服几点下班？我想咨询一下发票怎么开。",
         order_id=None,
         tools=[],
-        needs_human=False,
+        # 信息类咨询：是否转人工取决于模型置信度，标 None 不计入转人工判定（口径见 DESIGN §10）。
+        needs_human=None,
         reason=None,
         reply_draft="客服在线时间为每天 9:00-21:00，发票可在订单详情页申请开具。",
         confidence=0.8,
@@ -268,7 +269,8 @@ DEV_CASES: list[dict[str, Any]] = [
         text="请问支持哪些支付方式？我想了解下有没有分期。",
         order_id=None,
         tools=[],
-        needs_human=False,
+        # 同上：信息类咨询，标 None 不计入判定。
+        needs_human=None,
         reason=None,
         reply_draft="支持常见在线支付方式，分期以支付页面展示为准。",
         confidence=0.7,

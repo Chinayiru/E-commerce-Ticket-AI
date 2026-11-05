@@ -89,6 +89,9 @@ def args_ok(result: Any, case: Mapping[str, Any], calls: Any = None) -> bool:
 
 
 def escalation_ok(result: Any, case: Mapping[str, Any]) -> bool:
+    if case.get("expected_needs_human") is None:
+        # 标注为 None：转人工与否取决于模型置信度，不计入准确率分母（口径见 docs/DESIGN.md §10）。
+        return None
     answer = getattr(result, "answer", None)
     if answer is None:
         return not case.get("expected_needs_human")
@@ -119,6 +122,10 @@ def summarize(rows: Sequence[Mapping[str, Any]], total: int) -> dict[str, Any]:
     def ratio(key: str) -> float:
         return round(sum(1 for row in rows if row[key]) / total, 4)
 
+    scored = [row for row in rows if row.get("escalation_ok") is not None]
+    escalation_ratio = (
+        round(sum(1 for row in scored if row["escalation_ok"]) / len(scored), 4) if scored else None
+    )
     latencies = [int(row["latency_ms"]) for row in rows if row.get("latency_ms") is not None]
     costs = [float(row["cost_cny"]) for row in rows if row.get("cost_cny") is not None]
     return {
@@ -126,7 +133,9 @@ def summarize(rows: Sequence[Mapping[str, Any]], total: int) -> dict[str, Any]:
         "intent_accuracy": ratio("intent_ok"),
         "tools_accuracy": ratio("tools_ok"),
         "args_accuracy": ratio("args_ok"),
-        "escalation_accuracy": ratio("escalation_ok"),
+        "escalation_accuracy": escalation_ratio,
+        "escalation_scored": len(scored),
+        "escalation_excluded": total - len(scored),
         "address_escalation": {
             "cases": sum(1 for row in rows if row.get("intent") == "address_change"),
             "correct": sum(

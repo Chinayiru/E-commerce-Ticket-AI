@@ -347,6 +347,7 @@ running ──finalized──► ok
 | 5 | 退款且订单已发货（需拦截物流） | `REFUND_AFTER_SHIP` |
 | 6 | 退款金额 > ¥200（阈值可配） | `REFUND_OVER_LIMIT` |
 | 7 | 已超过售后期 | `REFUND_NOT_ALLOWED` |
+| 8.5 | 签收事实与物流记录矛盾（例如“显示已签收但我没收到”“签收时间与实际不符”），且无赔偿/追责诉求；仅 `shipping_urge` 命中 | `DELIVERY_DISPUTE` |
 | 8 | 改地址（正文出现 ≥2 个互相矛盾的地址 → `ADDRESS_CONFLICT`，先于发货状态判定；否则已发货 → `ADDRESS_AFTER_SHIP`，未发货 → `ADDRESS_CHANGE`） | 见左 |
 | 9 | other兜底，或低置信不足以形成可靠草稿 | `LOW_CONFIDENCE` |
 | 10 | 草稿含承诺性措辞（赔付/赔偿/补偿/保证/一定/百分百） | `DRAFT_RISK` |
@@ -389,6 +390,8 @@ running ──finalized──► ok
 工具正确率   = 期望工具集合与实调集合完全相等（双向，不含 create_ticket_draft）的条数 / 24
 参数正确率   = 期望调用匹配且无错误/越权尝试的条数 / 24；只对订单ID规范化，地址等不能统一大写；金额整数分精确比较
 转人工准确率 = needs_human 与标注一致的条数 / 24（冻结 holdout 单独报告 /12）
+
+转人工准确率的分母只计**确定性**用例：标注里 `expected_needs_human = null` 的条目（信息类咨询，转人工与否取决于模型置信度）不计入分母，单独以 `escalation_scored` / `escalation_excluded` 报告。分母缩小必须在报告里写明，不能只报比率。
 自动要素通过率 = 自动规则通过条数 / 草稿样本数
 人工采纳率   = 人工评为A档的条数 / 已人工复核的条数；无人工复核则待实测
 单次成本     = (input_tokens × 每百万输入单价 + output_tokens × 每百万输出单价) / 1,000,000 × 汇率
