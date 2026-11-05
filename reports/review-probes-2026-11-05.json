@@ -1,0 +1,306 @@
+{
+  "created_at": "2026-11-05T17:08:04.040649+08:00",
+  "reviewer": "supplemental AI review; no human review; old holdout already exposed",
+  "source_hashes": {
+    "app\\__init__.py": "0adceb92c875c3a7f983dbebc2d3e3d90230a553998960941cb9bbd02c58b654",
+    "app\\api\\main.py": "69dcee346dde48b0ddfaeba157d52deb0fa202fb56fdf7c720f3c8ed7a8b72bb",
+    "app\\cli.py": "1b6e7e8e0be2678c0c2285b125def037582051b3f4cdd1989d151b4d4b63dba8",
+    "app\\config.py": "1f1f3d0cadc11dc558b28b544853fe38125a164a148eca5e969ae726d06d4b64",
+    "app\\core\\__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app\\core\\context.py": "6aea144baa927a0e87a169cb5ff6652aee718e1e66901de49ba46e563e154027",
+    "app\\core\\hooks.py": "15842ab4d17c6ce07f21193257c6d0c973509a8cdeadaf343c808705c4a070b4",
+    "app\\core\\loop.py": "4405619b4a2982e6a8efe40cdfc7fd938f1fcdd2943b1461184696ab95b64689",
+    "app\\core\\policy.py": "1e1642f069e994f2782a84c3fa32cff8c5780927c700c7d705b06f9d3819abe0",
+    "app\\core\\prompts.py": "47c792882d691cfa194f5a7b2e33288c2c566d58fee6760305823a60141f1cdf",
+    "app\\eval\\datasets.py": "4a0bd39b3f6cc1c8e3dc660c120b3ae1e02ca80a79de6c4b197ff1d7b8b769d5",
+    "app\\eval\\metrics.py": "0b4c5c59f8f5d303c39a1fcf0e56d2833a745e791cdd4f600750e047a7f06c35",
+    "app\\eval\\runner.py": "15f0bc8ebc2f59736b676b1a7870735dfed8fa3d945cc2460e9e79e6b36cbf2f",
+    "app\\eval\\scripted_cases.py": "92b4be47dcc534690d9ed2ed1e41a9447431813f52a0613e954b732ab5223bc8",
+    "app\\llm\\__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app\\llm\\base.py": "96b7e87da27fe9d537658c0539ecb14cac71097ebc0f6d495598cbfba2fcd5dd",
+    "app\\llm\\openai_compat.py": "3f04950896f97d29376a98da3aabdca9269ba7958f7e61fe23a11e1d1793e118",
+    "app\\llm\\scripted.py": "94e844d7ae4ab2ff071c57ade3ee338d7074850a4e9f0b35fd90bc10ddb0ddb0",
+    "app\\redaction.py": "d77e2426b3ea9adfbcaaeed19714d3c22e0023389d89fde84c4869607984f694",
+    "app\\schemas.py": "f8761bbedcce5c1d70f2f4acac84af20af69fb9f52c2646fd94d4df30ad7c6d0",
+    "app\\store\\__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app\\store\\db.py": "60e3135b388a5507029782470c784ab6dd32b0fc345f25f032728922768f36cf",
+    "app\\tools\\__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app\\tools\\actions.py": "6bd1973e40ac544c64dab1abaf458e97ca85412594d0e3d89cf3733dd9735d0d",
+    "app\\tools\\business.py": "54b24d359f0383a5b5a23d5e3d904bc59d4249e9f1c3b3ce7c7b010204c3dd59",
+    "app\\tools\\mock_data.py": "a0cbf9db2228ba12d23f3755b965fc0743935c38902e54675cdd9ceb8898b608",
+    "app\\tools\\registry.py": "faa722de5e8465d87240a783349bca9f56f97b83afa623119c21eaec7a4e2aea",
+    "scripts\\review_probes.py": "88b932554376beb3ab3fba21724ddc922624ec64352c4939a22be55dbd226e2f",
+    "tests\\test_acceptance.py": "5a87b82d2db5a8695861b26abf463f297b5f495d156eaeaed13805529748e278"
+  },
+  "probe_count": 12,
+  "reproduced": 0,
+  "findings": [
+    {
+      "id": "R01a",
+      "expected": "缺少必需调用明细时参数不得判通过",
+      "observed": false,
+      "reproduced": false,
+      "run_id": null
+    },
+    {
+      "id": "R01b",
+      "expected": "越权订单尝试不得判参数正确",
+      "observed": false,
+      "reproduced": false,
+      "run_id": null
+    },
+    {
+      "id": "R02",
+      "expected": "没有答案时判定失败",
+      "observed": false,
+      "reproduced": false,
+      "run_id": null
+    },
+    {
+      "id": "R03",
+      "expected": "未查询时不得接受虚构事实、已退款声称及伪造 used_tools",
+      "observed": {
+        "run_id": "e306ba1ab961496c877b52362aa22193",
+        "status": "ok",
+        "stop_reason": "finalized",
+        "steps": 1,
+        "answer": {
+          "intent": "refund",
+          "confidence": 0.99,
+          "slots": {},
+          "reply_draft": "已为您完成退款，24小时到账。",
+          "needs_human": true,
+          "escalate_reason": "INSUFFICIENT_EVIDENCE",
+          "used_tools": []
+        },
+        "tool_calls": [
+          {
+            "step": 1,
+            "name": "create_ticket_draft",
+            "ok": true,
+            "latency_ms": 3,
+            "error_code": null,
+            "cached": false,
+            "approval_required": false,
+            "args_digest": "3a1ff4625486"
+          }
+        ],
+        "usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "source": "scripted",
+          "cost_cny": null
+        },
+        "latency_ms": 15,
+        "prompt_version": "v3",
+        "note": null
+      },
+      "reproduced": false,
+      "run_id": "e306ba1ab961496c877b52362aa22193"
+    },
+    {
+      "id": "R04",
+      "expected": "结构化 O1001 不得被工具调用中的 O1005 替代",
+      "observed": {
+        "structured_id_visible": true,
+        "result": {
+          "run_id": "08e19343f7c54293b06689ced0117510",
+          "status": "ok",
+          "stop_reason": "finalized",
+          "steps": 3,
+          "answer": {
+            "intent": "refund",
+            "confidence": 0.99,
+            "slots": {},
+            "reply_draft": "订单 O1005 可退 200.00 元。",
+            "needs_human": true,
+            "escalate_reason": "TOOL_FAILURE",
+            "used_tools": [
+              "query_order",
+              "refund_preview"
+            ]
+          },
+          "tool_calls": [
+            {
+              "step": 1,
+              "name": "query_order",
+              "ok": false,
+              "latency_ms": 0,
+              "error_code": "INVALID_ARGS",
+              "cached": false,
+              "approval_required": false,
+              "args_digest": "1d21ca416a06"
+            },
+            {
+              "step": 2,
+              "name": "refund_preview",
+              "ok": false,
+              "latency_ms": 0,
+              "error_code": "INVALID_ARGS",
+              "cached": false,
+              "approval_required": false,
+              "args_digest": "1d21ca416a06"
+            },
+            {
+              "step": 3,
+              "name": "create_ticket_draft",
+              "ok": true,
+              "latency_ms": 4,
+              "error_code": null,
+              "cached": false,
+              "approval_required": false,
+              "args_digest": "b878d7be536d"
+            }
+          ],
+          "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "source": "scripted",
+            "cost_cny": null
+          },
+          "latency_ms": 32,
+          "prompt_version": "v3",
+          "note": null
+        }
+      },
+      "reproduced": false,
+      "run_id": "08e19343f7c54293b06689ced0117510"
+    },
+    {
+      "id": "R05a",
+      "expected": "超时后收到终局仍须 timeout/degraded",
+      "observed": {
+        "run_id": "4eba880a0c0241bdbd2bc09c17ffe34c",
+        "status": "degraded",
+        "stop_reason": "timeout",
+        "steps": 1,
+        "answer": {
+          "intent": "refund",
+          "confidence": 0.0,
+          "slots": {},
+          "reply_draft": "本次处理因系统原因未能完成，已转人工客服接手，稍后会有同事联系您。本条不构成任何赔付、补偿或时效承诺。",
+          "needs_human": true,
+          "escalate_reason": "TIMEOUT",
+          "used_tools": []
+        },
+        "tool_calls": [],
+        "usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "source": "scripted",
+          "cost_cny": null
+        },
+        "latency_ms": 2000,
+        "prompt_version": "v3",
+        "note": "deadline_exceeded_on_response"
+      },
+      "reproduced": false,
+      "run_id": "4eba880a0c0241bdbd2bc09c17ffe34c"
+    },
+    {
+      "id": "R05b",
+      "expected": "终局已耗超 token 预算须降级",
+      "observed": {
+        "run_id": "d549d842003f49f9a75ff9966dc80f69",
+        "status": "degraded",
+        "stop_reason": "token_budget",
+        "steps": 1,
+        "answer": {
+          "intent": "refund",
+          "confidence": 0.0,
+          "slots": {},
+          "reply_draft": "本次处理因系统原因未能完成，已转人工客服接手，稍后会有同事联系您。本条不构成任何赔付、补偿或时效承诺。",
+          "needs_human": true,
+          "escalate_reason": "TOKEN_BUDGET",
+          "used_tools": []
+        },
+        "tool_calls": [],
+        "usage": {
+          "input_tokens": 90,
+          "output_tokens": 30,
+          "total_tokens": 120,
+          "source": "scripted",
+          "cost_cny": null
+        },
+        "latency_ms": 0,
+        "prompt_version": "v3",
+        "note": "budget_exceeded_on_response"
+      },
+      "reproduced": false,
+      "run_id": "d549d842003f49f9a75ff9966dc80f69"
+    },
+    {
+      "id": "R06",
+      "expected": "肯定争议识别、否定争议排除",
+      "observed": [
+        {
+          "text": "物流记录已签收，可我一直没拿到包裹",
+          "expected": true,
+          "actual": true,
+          "final_reason": "DELIVERY_DISPUTE",
+          "run_id": "f9d27418275445efbd98304de6b8540a"
+        },
+        {
+          "text": "签收时间没问题，并不存在不一致",
+          "expected": false,
+          "actual": false,
+          "final_reason": null,
+          "run_id": "26c194eda9f642ac9cebe5d7629b19f6"
+        },
+        {
+          "text": "常见正例",
+          "expected": true,
+          "actual": true
+        },
+        {
+          "text": "含赔偿诉求",
+          "expected": false,
+          "actual": false,
+          "final_reason": null,
+          "run_id": "56fab120125947f9ba4cec9f90f724ed"
+        }
+      ],
+      "reproduced": false,
+      "run_id": null
+    },
+    {
+      "id": "R07",
+      "expected": "AC03 要求非法动作字段先判 INVALID_ARGS",
+      "observed": "INVALID_ARGS",
+      "reproduced": false,
+      "run_id": "67eabc349ef7474399f5c5287337e1b7"
+    },
+    {
+      "id": "R08",
+      "expected": "AC15 要求存储的 turns 也脱敏",
+      "observed": {
+        "raw_phone_in_stored_turns": false
+      },
+      "reproduced": false,
+      "run_id": "162ac54d22b64dcaac53f7a287a94b87"
+    },
+    {
+      "id": "R09",
+      "expected": "内部草稿写失败不得仍返回 ok",
+      "observed": {
+        "raised": "StoreError",
+        "detail": "数据库操作失败[create_ticket_draft]：写入草稿失败：StoreError: 数据库操作失败[save_draft]：audit injected transient failure"
+      },
+      "reproduced": false,
+      "run_id": null
+    },
+    {
+      "id": "R10",
+      "expected": "仅含随机 run_id 的元数据不能被视为手机号泄漏",
+      "observed": {
+        "scans_whole_trace": false
+      },
+      "reproduced": false,
+      "run_id": null
+    }
+  ],
+  "evidence_note": "临时 SQLite 已删除；run_id 仅关联本次内存记录，非可查询的持久 trace；运行输出保存在本 JSON。"
+}

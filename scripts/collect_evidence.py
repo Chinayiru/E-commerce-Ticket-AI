@@ -218,6 +218,8 @@ def write_index(base: dict[str, Any], rows: dict[str, Any]) -> None:
     lines = [
         "# AC01–AC21 证据索引",
         "",
+        "> 本索引为实现者 scripted 验收记录，不是第二人代码复核；AC 覆盖缺口及补充 AI 审查见 reports/review-2026-11-05.md。",
+        "",
         f"- 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
         f"- provider：`scripted`（本轮全部数字均为脚本，不与真实模型数字混排）",
         f"- 数据库：`{DB}`",

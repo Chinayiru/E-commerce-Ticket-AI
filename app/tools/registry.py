@@ -100,6 +100,17 @@ class ToolRegistry:
         return bool(item and item.spec.irreversible)
 
     # ------------------------------------------------------------------ execute
+    def validate(self, name: str, arguments: Mapping[str, Any]) -> ToolResult | None:
+        """只做参数校验、不执行；loop 必须在钩子之前调用它。
+
+        否则 ``approved=true`` 这类越权字段会先被钩子截成 APPROVAL_REQUIRED，
+        掩盖掉本该返回的 INVALID_ARGS（合同要求参数校验优先）。
+        """
+        item = self.get(name)
+        if item is None:
+            return ToolResult.failure("TOOL_UNAVAILABLE", f"未知工具：{name}")
+        return self._validate(item.spec, arguments)
+
     def execute(self, name: str, arguments: Mapping[str, Any], context: ToolContext) -> tuple[ToolResult, int]:
         """执行一次工具尝试，返回 (结构化结果, 耗时毫秒)；任何失败都不抛异常。"""
         started = time.perf_counter()

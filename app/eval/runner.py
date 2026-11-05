@@ -181,8 +181,18 @@ def write_report(result: SuiteResult, config: Config, *, out_dir: Path | None = 
 def render_markdown(payload: Mapping[str, Any]) -> str:
     env = payload["environment"]
     m = payload["metrics"]
+    if m["escalation_accuracy"] is None:
+        escalation_line = "- 转人工准确率：无确定性标注，不计分"
+    else:
+        denominator = (f"计分 {m['escalation_scored']}/{m['cases']}，排除 {m['escalation_excluded']}"
+                       if "escalation_scored" in m and "escalation_excluded" in m
+                       else "旧报告未记录计分分母和排除数")
+        escalation_line = (f"- 转人工准确率：{m['escalation_accuracy']:.2%}（{denominator}；"
+                           f"其中改地址 {m['address_escalation']['correct']}/{m['address_escalation']['cases']}）")
     lines = [
         f"# 评估报告 {payload['report_id']}",
+        "",
+        "> 自动指标仅表示与该数据集标注的一致性；不等于客服采纳或独立业务复核。历史评分的已知限制见 reports/review-2026-11-05.md。",
         "",
         "## 环境",
         "",
@@ -199,7 +209,7 @@ def render_markdown(payload: Mapping[str, Any]) -> str:
         f"- 分类准确率：{m['intent_accuracy']:.2%}",
         f"- 工具调用正确率：{m['tools_accuracy']:.2%}",
         f"- 参数正确率：{m['args_accuracy']:.2%}",
-        f"- 转人工准确率：{m['escalation_accuracy']:.2%}（其中改地址 {m['address_escalation']['correct']}/{m['address_escalation']['cases']}）",
+        escalation_line,
         f"- 降级用例：{m['degraded_cases']}",
         f"- 时延 P95：{m['latency_p95_ms']} ms，均值：{m['mean_latency_ms']} ms",
         f"- 单次平均成本：{m['mean_cost_cny']} 元",
@@ -210,8 +220,10 @@ def render_markdown(payload: Mapping[str, Any]) -> str:
         "| case_id | run_id | 意图 | 工具集合 | 参数 | 转人工 | 状态 | stop_reason |",
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
+    if payload["dataset"]["name"] == "holdout":
+        lines[2:2] = ["> 旧 holdout 已由实现者生成、阅读和运行，已暴露/污染；本报告只作历史观测或回归诊断，不能作为独立泛化证据。新盲测见 docs/BLIND_EVAL.md。", ""]
     for row in payload["cases"]:
-        mark = lambda flag: "✅" if flag else "❌"  # noqa: E731
+        mark = lambda flag: "—（不计分）" if flag is None else "✅" if flag else "❌"  # noqa: E731
         lines.append(
             "| {case_id} | {run_id} | {intent_pred} {ok} | {tools} | {args} | {esc} | {status} | {stop} |".format(
                 case_id=row["case_id"],

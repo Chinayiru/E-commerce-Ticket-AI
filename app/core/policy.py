@@ -28,6 +28,13 @@ COMPLAINT_KEYWORDS = (
 MULTI_ORDER_KEYWORDS = ("两个订单", "两笔订单", "一起处理", "同时处理", "分别处理", "都退", "批量")
 #: 10 草稿承诺性措辞。
 PROMISE_KEYWORDS = ("赔付", "赔偿", "补偿", "保证", "一定", "百分百")
+#: 声称写操作已执行（本版只产出草稿，任何“已退款/已改地址”都是越权口吻）。
+_WRITE_CLAIM_RE = re.compile(
+    r"(已(为您)?(退款|退货|改地址|修改地址|变更地址|登记退款|提交退款|发起退款)"
+    r"|退款已(到账|完成)|地址已(改|修改|变更))"
+)
+#: 承诺处理时限。
+_TIMELINE_RE = re.compile(r"(\d+\s*[-~]?\s*\d*\s*个?工作日|\d+\s*小时内|当天(内)?|今天内|明天内|24\s*小时)")
 
 #: 可退事实成立时，模型仍可用的转人工理由（其余理由一律作废，由事实层决定）。
 _MODEL_REASON_ALLOWLIST = frozenset({
@@ -87,9 +94,28 @@ _DISPUTE_RE = re.compile(
 )
 
 
+#: 用户明确说“没问题/一致/不存在不一致”时不算争议。
+_DISPUTE_NEGATED_RE = re.compile(r"(没问题|不存在.{0,4}不一致|并不.{0,4}不一致|是一致的|时间对得上|时间没错)")
+#: 有赔偿/追责诉求时走投诉口径，不落 DELIVERY_DISPUTE。
+_DISPUTE_CLAIM_RE = re.compile(r"(赔偿|赔付|补偿|追责|起诉|曝光)")
+#: “显示已签收但我没拿到”这类：签收记录与实物不符。
+_DISPUTE_SIGNED_RE = re.compile(
+    r"((已签收|已送达|显示签收|显示已签收).{0,16}(没(拿到|收到|见到)|未(收到|签收)|找不到))"
+)
+
+
 def delivery_dispute(text: str) -> bool:
     """是否属于“签收事实有争议”，需要人工核实而不是自动回复。"""
-    return bool(_DISPUTE_RE.search(text or ""))
+    t = text or ""
+    if _DISPUTE_CLAIM_RE.search(t) or _DISPUTE_NEGATED_RE.search(t):
+        return False
+    return bool(_DISPUTE_RE.search(t) or _DISPUTE_SIGNED_RE.search(t))
+
+
+def draft_risk(draft: str) -> bool:
+    """草稿是否含绝对化承诺（DESIGN §9.1 第 10 条，仅此五类词）。"""
+    text = draft or ""
+    return any(word in text for word in PROMISE_KEYWORDS)
 
 
 def order_candidates(text: str) -> tuple[str, ...]:
@@ -258,13 +284,18 @@ def evaluate(
     if answer.intent == Intent.SHIPPING_URGE and delivery_dispute(text):
         reasons.append("DELIVERY_DISPUTE")
 
+
     if answer.intent == Intent.OTHER and answer.confidence < 0.5:
         reasons.append("LOW_CONFIDENCE")
 
     draft = answer.reply_draft
-    if any(word in draft for word in PROMISE_KEYWORDS):
+    if draft_risk(draft):
         reasons.append("DRAFT_RISK")
         draft = _RISK_SAFE_DRAFT
+
+    # 证据不足：退款结论必须有 refund_preview 的实测结果，模型不能凭想象宣布“可退/已退”。
+    if answer.intent == Intent.REFUND and "refund_preview" not in facts.tool_names:
+        reasons.append("INSUFFICIENT_EVIDENCE")
 
     blocked_model_flag = False
     if answer.needs_human:

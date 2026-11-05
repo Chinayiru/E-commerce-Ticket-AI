@@ -222,7 +222,7 @@ R5 的 2 条转人工不一致：`dev-shipping-complex-3`（标签要求 DELIVER
 | C | 5 | 声称“已登记退款/已改地址”等写操作已执行（本版只产出草稿） |
 
 **口径声明**：这批标注由实现者按规则初筛（`annotator=implementer-rule-pass-1`），不是业务方独立复核，
-因此 60% 只能读作“实现者初筛通过率”，不能写成“人工采纳率”。真正的采纳率需业主或客服抽样复核后重算。
+因此 60% 只能读作“实现者自查通过率”，不能写成“人工采纳率”。真正的采纳率需业主或客服抽样复核后重算。
 明细见 `reports/drafts-annotation.md`。
 
 ### 8.9 口径裁定（2026-11-05，由实现者代业主决定并留档）
@@ -242,7 +242,58 @@ R5 的 2 条转人工不一致：`dev-shipping-complex-3`（标签要求 DELIVER
 | 组 | intent | tools | args | escalation | degraded | P95 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 开发集 24 条（R6） | 1.0000 | 1.0000 | 1.0000 | 1.0000（22 计分） | 0 | 11063 ms |
-| 冻结 holdout 12 条（H1，只跑一次） | 0.9167 | 1.0000 | 1.0000 | 0.9167（12 计分） | 0 | 16172 ms |
+| 旧 holdout 12 条（H1，已暴露，历史结果） | 0.9167 | 1.0000 | 1.0000 | 0.9167（12 计分） | 0 | 16172 ms |
 
-holdout 唯一失败：`hold-other-1` 判成 `refund` 并走 `MISSING_ORDER_ID`。这条**没有回改**——holdout 冻结额度已用掉，
-任何针对它的修改都会让 0.9167 失去意义。若要继续优化，必须重新生成一份未接触过的 holdout。
+旧 holdout 的唯一失败为 `hold-other-1`，判成 `refund` 并走 `MISSING_ORDER_ID`，当时未针对它回改。
+但同一实现者生成并读过这批题目，“真实模型只跑一次”仍不能证明独立；该批已退休为诊断/回归资料，历史 0.9167 不作独立泛化结论。
+
+### 8.10 证据口径纠正与补充 AI 审查（2026-11-05）
+
+AC01–AC21 的断言、`DELIVERY_DISPUTE`、holdout 与草稿初筛来自同一实现者，尚无第二人代码或客服复核，这是交付的主要结构性风险。当前补充 AI 审查已见旧题与历史失败，不能担任新盲测出题方。审查报告与 12 项探针的原始结果见 `reports/review-2026-11-05.md` 和 `reports/review-probes-2026-11-05.json`。
+
+新 12 条流程见 `BLIND_EVAL.md`：外部独立出题/复核，先冻结候选及评分规则，再封存运行。当前仅建立并离线验证流程，新样本与新成绩均待提供。旧数字不重写、不挑选；评分实现缺陷、策略正则边界和 AC 断言不足单列待修。
+
+## 9 评审探针 R01–R10 修复轮（2026-11-05，provider = openai）
+
+`scripts/review_probes.py` 的 12 条探针在修复前 `reproduced=12`；本轮逐条修完后为 `reproduced=0`，`pytest tests -q` 39 passed。
+探针是**可执行的反例**，不是意见：每条都会真实跑一次循环并给出可观察行为，修完必须能重复证明它不再复现。
+
+### 9.1 逐条修复
+
+| 探针 | 缺陷 | 修复 | 反例断言 |
+| --- | --- | --- | --- |
+| R01a/b | `args_ok` 缺调用明细直接 True；越权 `ORDER_NOT_FOUND` 只要参数对仍算对 | `metrics.args_ok` 重判：`calls is None` → False、条数不等 → False、任何 `INVALID_ARGS`/被拦截写操作 → False、按工具名逐键比参数 | AC 断言 + 探针 R01 |
+| R02 | `escalation_ok` 在“无答案且期望不转人工”时返回 True | 改为 `expected is None → None`、无 answer → False | 探针 R02 |
+| R03 | 不调任何工具、直接宣称“已退款，24 小时到账”，伪造 `used_tools` 仍 ok | `_finalize` 用真实轨迹重建 `used_tools`；新增策略规则 `INSUFFICIENT_EVIDENCE`（退款结论缺 `refund_preview` 事实即转人工） | AC19/AC01 + 探针 R03 |
+| R04 | 工单绑定 O1001，模型查同用户 O1005 未被拦 | `loop._order_scope_error`：请求里的 `order_id` 必须等于工单订单，否则 `INVALID_ARGS` | 探针 R04 |
+| R05a/b | 预算与墙钟只在下一轮开头检查，终局可越过限制 | 响应返回后立刻复核 budget / deadline，越限即降级；重试使用实时剩余时间 | AC09 + 探针 R05 |
+| R06 | 物流争议正则漏识别“已签收但没拿到”、误识别“并不存在不一致”、含赔偿仍命中 | 先排除否定式与赔偿/追责诉求，再匹配争议与签收不符两种表达 | 探针 R06 |
+| R07 | `approved=true` 先被钩子截成 `APPROVAL_REQUIRED`，未按合同回 `INVALID_ARGS` | `registry.validate` 提到钩子之前，参数校验优先于审批 | AC03 + 探针 R07 |
+| R08 | 库里 `turns.content` 存手机号明文 | `db` 写入边界统一 `mask_pii`（文本、消息 JSON、工具参数与结果、草稿、结果 JSON） | AC15（扫文本字段而非整段 JSON） |
+| R09 | 草稿写失败仍返回 ok，只留 note | `_maybe_create_draft` 遇 `STORE_WRITE_FAILED` 抛 `StoreError`，HTTP 层转 500 | AC11 + 探针 R09 |
+| R10 | AC15 用 `\d{11}` 扫整段 JSON，被随机 run_id 误报 | 断言只扫用户可见与落库文本字段，不扫 run_id | AC15 |
+
+顺带修掉一处**度量自身**的错误：数据集里 `expected_args` 有两种写法（`{"order_id": ...}` 与 `{"name":..., "arguments": {...}}`），
+`_expected_calls` 只认一种，导致参数比对全判 False（args 掉到 0.2500）。修复后同一批 run 重算回到 1.0000。
+另外把 `NOT_SHIPPED` 计入“可预期业务状态”而非错误——设计 §4 明确未发货调物流属正常反馈，
+严格版若不排除它，三条催发货单会被误判（args 0.8333 → 1.0000）。
+
+### 9.2 本轮真机数字（同条件，逐轮只改一处）
+
+| 轮次 | 改动 | intent | tools | args | escalation | degraded | P95 | 报告 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| R7 | 探针修复 + 严格度量 + NOT_SHIPPED 口径 | 1.0000 | 1.0000 | 1.0000 | 0.9545（22 计分） | 1 | 16563 ms | `openai-eval_cases-20261105165752.json` |
+| R8 | 同上，`TOKEN_BUDGET` 6000 → 12000 | 1.0000 | 1.0000 | 1.0000 | 1.0000（22 计分） | 0 | 10703 ms | `openai-eval_cases-20261105170119.json` |
+
+R7 唯一的 degraded 是 `dev-refund-simple-1`：两步响应累计 2043 + 4006 = 6049 token，越过文档默认的 6000 预算，
+按 AC09 语义降级为 `token_budget`（工具其实都调对了，只是没走到终局）。这不是代码缺陷，是**默认预算与推理型模型不匹配**：
+思考 token 计入 `max_tokens`，单步常见 2k，两步就摸到 6000。R8 只把预算调到 12000，同一实现全绿。
+
+结论按文档纪律写：`TOKEN_BUDGET=6000` 是设计文档给的默认值，**不为分数改默认**；真实模型需要 12000，
+必须写进报告条件而不是偷偷调高。部署时该值随模型类型走，不随分数走。
+
+### 9.3 仍未解决
+
+1. 单轮差异已进入噪声区间（同条件重复 intent 0.9167–1.0000、tools 0.9583–1.0000），任何“提升”需重复 3 次取中位数才可宣称。
+2. holdout 已污染且额度用尽，本轮没有再跑；新样本必须来自 `BLIND_EVAL.md` 的独立出题流程。
+3. `DRAFT_RISK` 只按设计文档的五个承诺词判定；更广的“写操作已执行”类风险由 `INSUFFICIENT_EVIDENCE` 与人工复核兜底，不是规则能穷尽的。

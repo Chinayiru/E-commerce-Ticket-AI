@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from app.config import TZ_SHANGHAI, Config
+from app.redaction import mask_pii
 from app.schemas import (
     Evaluation,
     Session,
@@ -30,6 +31,21 @@ from app.schemas import (
 )
 
 SCHEMA_VERSION = 2
+
+
+def _mask_text(value: Any) -> Any:
+    return mask_pii(value) if isinstance(value, str) else value
+
+
+def _mask_deep(value: Any) -> Any:
+    """落库前统一脱敏：库里不留明文手机号、身份证、门牌号。"""
+    if isinstance(value, str):
+        return mask_pii(value)
+    if isinstance(value, Mapping):
+        return {key: _mask_deep(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_mask_deep(item) for item in value]
+    return value
 
 
 class StoreError(RuntimeError):
@@ -255,8 +271,8 @@ class Database:
                         session_id,
                         ticket.ticket_id,
                         ticket.user_id,
-                        ticket.text,
-                        ticket.text,
+                        _mask_text(ticket.text),
+                        _mask_text(ticket.text),
                         ticket.order_id,
                         prompt_version,
                         _dumps(dict(model_config)),
@@ -291,10 +307,10 @@ class Database:
                     turn.session_id,
                     turn.idx,
                     turn.role,
-                    turn.content,
+                    _mask_text(turn.content),
                     turn.intent,
                     turn.confidence,
-                    None if turn.message_json is None else _dumps(turn.message_json),
+                    None if turn.message_json is None else _dumps(_mask_deep(turn.message_json)),
                     None if turn.usage is None else _dumps(turn.usage.to_dict()),
                     turn.request_hash,
                     turn.created_at or _now(),
@@ -316,12 +332,12 @@ class Database:
                     record.call_id,
                     record.tool_name,
                     int(record.step),
-                    _dumps(record.arguments),
+                    _dumps(_mask_deep(record.arguments)),
                     1 if record.ok else 0,
                     record.error_code,
-                    record.error_message,
+                    _mask_text(record.error_message),
                     int(record.duration_ms),
-                    None if record.result is None else _dumps(record.result),
+                    None if record.result is None else _dumps(_mask_deep(record.result)),
                     record.idempotency_key,
                     1 if record.cached else 0,
                     1 if record.approval_required else 0,
@@ -332,7 +348,7 @@ class Database:
 
     def save_draft(self, session_id: str, answer: Mapping[str, Any]) -> None:
         """只更新草稿与结果，不结束会话（create_ticket_draft 的落库动作）。"""
-        draft_text = str(answer.get("reply_draft") or "")
+        draft_text = str(_mask_text(answer.get("reply_draft") or ""))
         with self._write("save_draft") as conn:
             cursor = conn.execute(
                 """
@@ -341,7 +357,7 @@ class Database:
                  WHERE id = ?
                 """,
                 (
-                    _dumps(dict(answer)),
+                    _dumps(_mask_deep(dict(answer))),
                     draft_text,
                     1 if answer.get("needs_human") else 0,
                     _now(),

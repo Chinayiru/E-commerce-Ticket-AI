@@ -16,7 +16,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from app.config import Config
 from app.core import policy
@@ -214,6 +214,12 @@ class ExecutionLoop:
                 request_hash=_request_hash(self._request(state, deadline)),
             )
 
+            # 一次响应就可能吃光预算或越过墙钟：必须在收尾前复核，不能等到下一轮开头。
+            if state.usage is not None and state.usage.total_tokens >= self._config.token_budget:
+                return self._degrade(state, StopReason.TOKEN_BUDGET, note="budget_exceeded_on_response")
+            if deadline - self._clock() <= 0:
+                return self._degrade(state, StopReason.TIMEOUT, note="deadline_exceeded_on_response")
+
             # 预检只发生在第一份解析成功的响应上：命中即丢弃本次响应里的工具请求。
             self._emit("step", {"step": state.steps, "final": final is not None})
             if not state.prechecked:
@@ -247,6 +253,20 @@ class ExecutionLoop:
                     0,
                 )
                 self._append_tool_turn(state, call.name, ToolResult.failure("TOOL_UNAVAILABLE", f"未知工具：{call.name}"))
+                continue
+
+            invalid = self._registry.validate(call.name, call.arguments)
+            if invalid is not None:
+                # 参数校验先于钩子：越权字段必须是 INVALID_ARGS，而不是被截成 APPROVAL_REQUIRED。
+                self._record_tool(state, call.name, call.arguments, invalid, 0)
+                self._append_tool_turn(state, call.name, invalid)
+                continue
+
+            scope_error = self._order_scope_error(state.ticket, call.arguments)
+            if scope_error is not None:
+                # 工具只能作用于本工单已确认的订单，防止拿同用户另一个订单去查/去改。
+                self._record_tool(state, call.name, call.arguments, scope_error, 0)
+                self._append_tool_turn(state, call.name, scope_error)
                 continue
 
             decision: HookDecision = self._hooks.pre_tool(
@@ -312,7 +332,30 @@ class ExecutionLoop:
         return None
 
     # ---------------------------------------------------------------- finalize
+    @staticmethod
+    def _order_scope_error(ticket: TicketIn, arguments: Mapping[str, Any]) -> ToolResult | None:
+        bound = (ticket.order_id or "").upper() or None
+        raw = arguments.get("order_id") if isinstance(arguments, Mapping) else None
+        if bound is None or raw is None or str(raw).upper() == bound:
+            return None
+        return ToolResult.failure(
+            "INVALID_ARGS",
+            f"订单 {raw} 不属于当前工单（本工单订单为 {bound}）",
+        )
+
     def _finalize(self, state: _State, answer: FinalAnswer, deadline: float) -> "_Outcome":
+        # used_tools 只能来自真实调用轨迹，不接受模型自述——否则回复里可以凭空长出“已退款”。
+        observed = list(dict.fromkeys(item.name for item in state.outcomes))
+        if list(answer.used_tools) != observed:
+            answer = FinalAnswer(
+                intent=answer.intent,
+                confidence=answer.confidence,
+                slots=dict(answer.slots),
+                reply_draft=answer.reply_draft,
+                needs_human=answer.needs_human,
+                escalate_reason=answer.escalate_reason,
+                used_tools=observed,
+            )
         facts = policy.PolicyFacts.from_outcomes(state.outcomes)
         outcome = policy.evaluate(
             answer,
@@ -380,7 +423,15 @@ class ExecutionLoop:
             state, "create_ticket_draft", arguments, result, elapsed_ms,
             idempotency_key=None, attempt_idx=1,
         )
-        return None if result.ok else f"draft_failed:{result.error.code if result.error else 'unknown'}"
+        if result.ok:
+            return None
+        code = result.error.code if result.error else "unknown"
+        if code == "STORE_WRITE_FAILED":
+            # 落库失败不能降级成 ok：调用方必须看到 500，而不是一条“已转人工”的成功回复。
+            from app.store.db import StoreError
+
+            raise StoreError("create_ticket_draft", result.error.message if result.error else "落库失败")
+        return f"draft_failed:{code}"
 
     # ----------------------------------------------------------------- degrade
     def _degrade(self, state: _State, reason: StopReason, *, note: str | None = None) -> "_Outcome":

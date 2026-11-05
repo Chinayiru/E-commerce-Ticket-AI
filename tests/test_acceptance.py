@@ -216,7 +216,18 @@ def test_ac05_policy_matrix(make_env):
 # ---------------------------------------------------------------- AC06
 def test_ac06_idempotent_tool_call(make_env):
     config, store = make_env()
-    step = {"tool_calls": [{"name": "query_order", "arguments": {"order_id": "O1001"}}]}
+    # 订单号必须与工单绑定的一致：跨单调用在 R04 之后会判 INVALID_ARGS。
+    c = case("dev-shipping-simple-2")
+    raw_args = c.get("expected_args") or []
+    if isinstance(raw_args, dict):
+        order_id = (raw_args.get("query_order") or {}).get("order_id") or c.get("order_id")
+    else:
+        order_id = c.get("order_id")
+        for name, args in zip(c.get("expected_tools") or [], raw_args):
+            if name == "query_order" and isinstance(args, dict) and args.get("order_id"):
+                order_id = args["order_id"]
+                break
+    step = {"tool_calls": [{"name": "query_order", "arguments": {"order_id": order_id}}]}
     out = run(
         store,
         payload("dev-shipping-simple-2"),
@@ -423,7 +434,12 @@ def test_ac15_pii_is_masked(make_env):
     assert "13812345678" not in trace
     import re
 
-    assert not re.search(r"\d{11}", trace)
+    # 只检查人写的文本字段：整段 JSON 里含随机 run_id（32 位十六进制），会有连续 11 位数字的巧合。
+    payload = client.get(f"/v1/runs/{out.run_id}").json()
+    texts = [payload["session"].get("text") or "", payload["session"].get("draft_text") or ""]
+    texts += [turn.get("content") or "" for turn in payload.get("turns", [])]
+    texts += [str(call.get("arguments") or "") for call in payload.get("tool_calls", [])]
+    assert not any(re.search(r"\d{11}", item) for item in texts)
 
 
 # ---------------------------------------------------------------- AC16
@@ -498,7 +514,7 @@ def test_ac21_complaint_precheck(make_env):
 
 
 def test_holdout_runs_offline(make_env):
-    """留出集冻结后只用一次；这里只验证它能离线跑通且不崩。"""
+    """旧公开 holdout 的回归冒烟；不是新盲测，不证明独立性或泛化。"""
     config, store = make_env()
     dataset = load_holdout()
     assert len(dataset) == 12

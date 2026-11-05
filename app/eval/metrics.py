@@ -49,56 +49,76 @@ def tools_ok(result: Any, case: Mapping[str, Any]) -> bool:
     return expected == actual
 
 
+def _normalize_args(value: Any) -> dict[str, Any] | None:
+    """数据集里的期望参数有两种写法：{"order_id": ...} 或 {"name":..., "arguments": {...}}。"""
+    if not isinstance(value, Mapping):
+        return None
+    inner = value.get("arguments")
+    if isinstance(inner, Mapping):
+        return dict(inner)
+    return dict(value)
+
+
+def _expected_calls(case: Mapping[str, Any]) -> list[tuple[str, dict[str, Any] | None]]:
+    tools = list(case.get("expected_tools") or [])
+    expected_args = case.get("expected_args")
+    pairs: list[tuple[str, dict[str, Any] | None]] = []
+    if isinstance(expected_args, Mapping):
+        for name in tools:
+            pairs.append((name, _normalize_args(expected_args.get(name))))
+    elif isinstance(expected_args, (list, tuple)):
+        for i, name in enumerate(tools):
+            value = expected_args[i] if i < len(expected_args) else None
+            pairs.append((name, _normalize_args(value)))
+    else:
+        pairs.extend((name, None) for name in tools)
+    return pairs
+
+
 def args_ok(result: Any, case: Mapping[str, Any], calls: Any = None) -> bool:
-    """参数正确率：同工具名逐键比对，不看调用先后顺序。
+    """参数正确率：期望调用与实调必须逐条、逐键对上。
 
-    顺序不是质量指标——模型先查物流再查订单和反过来是等价的；
-    但错误参数、越权尝试、被拦截的写操作都必须算失败。
+    三条硬规则：没有调用明细时不能默认通过；多余调用算错；任何非预期的错误码算错
+    （只有标注里写明的业务错误，例如 ORDER_NOT_FOUND，才允许出现）。
     """
+    if calls is None:
+        return False
+    records = [item for item in calls if item.tool_name not in INTERNAL_TOOLS]
+    if any(item.error_code == "INVALID_ARGS" for item in records):
+        return False
+    if any(item.approval_required for item in records):
+        return False
+    allowed_errors = {case.get("expected_reason"), "NOT_SHIPPED"}
+    if any(item.error_code and item.error_code not in allowed_errors for item in records):
+        return False
 
-    records = list(calls or [])
-    if records:
-        if any(record.error_code == "INVALID_ARGS" for record in records):
+    expected = _expected_calls(case)
+    if len(records) != len(expected):
+        return False
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for item in records:
+        by_name.setdefault(item.tool_name, []).append(dict(item.arguments or {}))
+    for name, want in expected:
+        got = by_name.get(name) or []
+        if len(got) != 1:
             return False
-        if any(record.approval_required for record in records):
-            return False
-        by_name: dict[str, list[Mapping[str, Any]]] = {}
-        for record in records:
-            if record.tool_name in INTERNAL_TOOLS:
-                continue
-            by_name.setdefault(record.tool_name, []).append(record.arguments or {})
-    else:  # 兜底：只有摘要时无法比参数，只判有无非法调用
-        summaries = [item for item in (result.tool_calls or [])
-                     if item.get("name") not in INTERNAL_TOOLS]
-        if any(item.get("error_code") == "INVALID_ARGS" for item in summaries):
-            return False
-        if any(item.get("approval_required") for item in summaries):
-            return False
-        return True
-
-    expected = case.get("expected_args") or []
-    for want in expected:
-        name = want.get("name")
-        arguments = want.get("arguments") or {}
-        candidates = by_name.get(str(name))
-        if not candidates:
-            return False
-        if arguments and arguments not in candidates:
+        if want is not None and got[0] != want:
             return False
     return True
 
 
-def escalation_ok(result: Any, case: Mapping[str, Any]) -> bool:
-    if case.get("expected_needs_human") is None:
-        # 标注为 None：转人工与否取决于模型置信度，不计入准确率分母（口径见 docs/DESIGN.md §10）。
+def escalation_ok(result: Any, case: Mapping[str, Any]) -> bool | None:
+    """转人工判定：标注为 None 时不计分；没有最终答案一律算错（不能因为没跑完就默认通过）。"""
+    expected = case.get("expected_needs_human")
+    if expected is None:
         return None
     answer = getattr(result, "answer", None)
     if answer is None:
-        return not case.get("expected_needs_human")
-    if bool(answer.needs_human) != bool(case.get("expected_needs_human")):
+        return False
+    if bool(answer.needs_human) != bool(expected):
         return False
     reason = case.get("expected_reason")
-    if case.get("expected_needs_human") and reason:
+    if expected and reason:
         return answer.escalate_reason == reason
     return True
 

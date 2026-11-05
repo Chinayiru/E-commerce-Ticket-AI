@@ -48,6 +48,7 @@ def load_eval_cases(path: Path | None = None) -> Dataset:
 
 
 def load_holdout(path: Path | None = None) -> Dataset:
+    """历史兼容入口：默认文件已暴露，只作回归；新独立集见 scripts/blind_eval.py。"""
     return load_dataset(path or HOLDOUT_CASES, name="holdout")
 
 

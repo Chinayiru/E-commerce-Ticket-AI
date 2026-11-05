@@ -86,7 +86,7 @@ aftermarket-agent/
 │   │   └── scripted.py        # 离线确定性桩（禁止用它撑指标）
 │   ├── api/main.py            # FastAPI + SSE
 │   └── eval/                  # V 数据集 / 跑批 / 回放 / 报告
-├── data/                      # mock_orders.json / eval_cases.jsonl / drafts_50.jsonl / holdout_12.jsonl
+├── data/                      # mock_orders.json / eval_cases.jsonl / drafts_50.jsonl / holdout.jsonl（旧集）
 ├── docs/                      # DESIGN.md / IMPLEMENTATION.md / DEVELOPMENT.md / INTERVIEW_READINESS.md / BADCASE.md / README.md
 ├── reports/                   # 每版评估产物（json + md）
 ├── scripts/                   # check_leakage.py / compare_versions.py
@@ -292,7 +292,7 @@ python -m app.cli replay --run-id <失败run_id> --prompt v4
 > 编号已并入 IMPLEMENTATION 第 11 章，两处不再各自演进：1→AC01、2→AC16、3→AC05、4→AC17、5→AC05、6→AC05、7→AC18、8→AC18、9→AC05、10→AC19。
 > 本表只写"转不转人工"；AC 表额外给出命令、观察字段与具体期望值，那才是可执行的部分。
 
-**冻结 holdout**：另建 12 条（4 意图 × 3），标注后写入 `data/holdout_12.jsonl` 并冻结，只在版本定稿时跑一次，不参与 prompt 调整、不进 few-shot。24 条与 holdout 不共用题干；去重脚本只管字面，语义近似的改写靠写作纪律。
+**新独立盲测**：按 BLIND_EVAL.md 另出 12 条（4 意图 × 3），由独立出题方及另一隔离流程复核，样本只保存在仓库外的保管方目录。先冻结候选与评分口径，再封存并运行一次，暴露后退役。旧 `data/holdout.jsonl` 已由实现者生成、阅读及运行，只作历史/回归资料；旧目录规划中的 `holdout_12.jsonl` 不代表存在另一份独立样本。字面去重不能证明语义独立。
 
 ---
 
@@ -303,7 +303,7 @@ python -m app.cli replay --run-id <失败run_id> --prompt v4
 | 1 | 设计文档（边界契约） | `docs/DESIGN.md` | 13.1 十条全勾 |
 | 2 | 开发文档（本文） | `docs/DEVELOPMENT.md` | W1–W4 的 DoD 全达标 |
 | 3 | Bad Case 归因与迭代记录 | `docs/BADCASE.md` | 每条失败有归因、每次修复有回放 |
-| 4 | 24 条确定性集 + 50 条草稿集 + 12 条冻结 holdout | `data/`（含 `holdout_12.jsonl`） | 泄漏检查通过，holdout 只在最终报告解封 |
+| 4 | 24 条开发集 + 50 条草稿集；新独立 12 条另行交接 | 旧数据在 `data/`，新盲测由仓库外保管方持有 | 按 BLIND_EVAL.md 独立出题与复核、冻结、封存和一次性运行；新成绩待提供 |
 | 5 | 各版本评估报告 | `reports/` | 每个数字可一条命令复现 |
 | 6 | README（三问成稿 + 指标表） | `README.md` | 桩数据已标注 `provider=scripted` |
 | 7 | 演示录屏（3 分钟） | 外部链接 | 画面可复现 |
@@ -321,7 +321,7 @@ python -m app.cli replay --run-id <失败run_id> --prompt v4
 | R-3 | 24 条太少，指标波动大 | 一条用例改变 4pp | 报告里同时给"条数"而非只有百分比；改动判定以"条"为单位 | 已缓解 |
 | R-4 | 模型供应商不稳定 | 429 / 5xx | 有限重试+deadline，报告注明运行时段 | 方案已写，待实现 |
 | R-5 | 场景太窄被质疑 | 面试官问"这算 Agent 吗" | 用设计文档 2.3 节回答：窄换来可穷举、可归因、可回放、可约束 | 叙事已备 |
-| R-6 | 自己调prompt又自己评分 | 无法排除过拟合 | 24条明确为development；泛化另建冻结holdout；人工和自动评分分开 | 已定规则，待执行 |
+| R-6 | 实现者同时编写代码、规则、断言、数据和初筛评分 | 自证链条，无法排除系统性盲点与过拟合，是主要结构性风险 | 独立代码复核；新 12 条按 BLIND_EVAL.md 分离出题、标注复核、保管与评分；客服采纳率另测 | 已有补充 AI 审查，尚无第二人或客服复核、独立新成绩 |
 | R-7 | 单人标注偏差 | 采纳率偏高 | 公开评分理由；人工与自动评分分开，B档仅计可用率 | 待执行 |
 
 ---

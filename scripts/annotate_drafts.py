@@ -81,9 +81,10 @@ def main() -> None:
         "",
         f"- 标注人：实现者（规则初筛，`annotator=implementer-rule-pass-1`），**不是业务方复核**",
         f"- 样本：{len(rows)} 条；分布：A={dist['A']}、B={dist['B']}、C={dist['C']}",
-        f"- A 档占比（仅作初筛参考）：{dist['A'] / len(rows):.2%}",
+        f"- 实现者自查通过率（A 档，规则初筛）：{dist['A'] / len(rows):.2%}",
+        "- 客服采纳率：待实测；`human_grade` 为历史兼容字段，不代表客服已复核。",
         "",
-        "| case_id | 意图 | 参考档 | 实测档 | 理由 |",
+        "| case_id | 意图 | 参考档 | 规则初筛档 | 理由 |",
         "| --- | --- | --- | --- | --- |",
     ]
     for row in rows:
