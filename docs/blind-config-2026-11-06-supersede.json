@@ -1,0 +1,16 @@
+{
+  "model": "deepseek-v4.1-flash-1017",
+  "base_url": "https://tk.enjoygoo.win/v1",
+  "prompt_version": "v3",
+  "demo_now": "2026-11-04T12:00:00+08:00",
+  "max_steps": 6,
+  "token_budget": 12000,
+  "wall_clock_s": 60.0,
+  "window_turns": 6,
+  "max_output_tokens": 2000,
+  "refund_auto_limit_cents": 20000,
+  "refund_window_days": 7,
+  "price_in_usd_per_mtok": 0.15,
+  "price_out_usd_per_mtok": 0.60,
+  "usd_cny_fx": 7.2
+}

@@ -1,5 +1,7 @@
 # 新 12 条独立盲测流程
 
+最新状态补充：第三个隔离 AI 保管流程已完成来源核验、新旧语义重复审查和正式封存，原数据及候选指纹未变。保管方已接收，等待用户在本机配置 API 凭据后执行唯一一次真实运行；尚未创建尝试记录或产生新成绩。见 [保管交接记录](../reports/independent-12-handoff-2026-11-05.md) 的最新状态段。下文部分“待封存”描述保留为之前阶段记录。
+
 状态（2026-11-05）：流程与离线验证工具已建立；**新 12 条已由隔离 AI 出题流程提供，并经另一干净上下文完成全量标签复核；独立保管方的语义去重及正式封存待完成，没有新的泛化成绩或客服采纳率**。当前补充 AI 审查对话已接触旧 holdout，未直接编写或阅读新题干。本流程不把同一对话再生成的题目包装成独立数据。
 
 2026-11-05 补充：用户已明确授权两个不继承实现对话的 AI 子代理分别出题与复核。本轮作者包固定在仓库外 `H:\盲测保管\independent-12-20261105-r8`，配置沿用 R8 的非敏感运行配置（token 预算 12000），源码冻结在当前修复版本。代理仅接收作者包，父流程不读取新题干。本轮状态和交接缺口见 [独立出题交接记录](../reports/independent-12-handoff-2026-11-05.md)。这是同模型的隔离 AI 流程，不是第二人或客服签字。
@@ -110,3 +112,46 @@ python scripts/compare_runs.py --arm baseline=reports/b1.json,reports/b2.json,re
 
 尚未完成的环节由保管方负责：语义去重、正式封存（`blind_eval.py freeze/seal`）、以及一次性运行。
 在封存完成前**没有新泛化成绩**；旧 holdout 不重跑，60% 仍只称“实现者自查”。
+
+## 2026-11-06 条件调整：30s → 60s 的继承封存
+
+业主要求 `wall_clock_s=60`、`token_budget=12000`，而旧 30s 封存要原样保留，因此不能就地改配置再封一次。
+做法是“另建候选 + 显式关联旧版本”，工具为 `scripts/supersede_seal.py`（`tests/test_supersede.py` 用合成样本锁定行为）。
+
+为什么旧封存不能复用：候选里冻结了全仓源码与运行时指纹（`blind_eval.py` 的 `sources()`/`runtime()`），
+审计轮新增的脚本与测试已让旧候选指纹失效——即便不改配置也必须新建候选，这也顺带保证了“旧记录不被篡改”。
+
+`supersede_seal.py` 的三条硬限制：
+
+1. 旧封存必须存在且**未消耗**（存在 `attempt.json` 就拒绝，一次性语义不因继承而松绑）；
+2. 新数据集 sha256 必须与旧封存的 `dataset_sha256` 完全相同（同一批 12 条，只改运行条件）；
+3. 配置差异只允许 `wall_clock_s` 与 `token_budget`（改步数、改模型、改提示词版本都会被拒）。
+
+保管方执行（仓库外目录，命令在仓库根下跑）：
+
+```powershell
+python scripts/supersede_seal.py `
+  --previous-work D:\sealed\2026-11-05-30s `
+  --work          D:\sealed\2026-11-06-60s `
+  --settings      docs\blind-config-2026-11-06-supersede.json `
+  --dataset       D:\sealed\independent-12.jsonl `
+  --attestation   D:\sealed\attestation.json `
+  --implementer   implementer `
+  --reason        "wall_clock_s 30->60，代理抖动防护"
+```
+
+成功时 stdout 输出 `changed_config`、`supersedes_seal_sha256`、新候选与封存的指纹；失败返回码 2 且**不回显底层异常文本**
+（避免把题干或样本内容带出隔离区）。随后仍按上文执行一次性运行，运行结束后只把 `report.json` 交回实现者：
+
+```powershell
+python scripts/sealed_summary.py --report D:\sealed\2026-11-06-60s\report.json
+```
+
+`sealed_summary.py` 只接受聚合报告：`.jsonl` 逐例文件直接拒绝，报告里出现非聚合字段同样拒绝，
+输出仅含四项指标的 `correct/total`、`accuracy`、Wilson 95% 区间、转人工混淆矩阵与三处指纹。
+
+已经存在的那份 30s 正式封存（`seal.json` SHA-256 `23c9fbb6…36ae0d`，见
+[independent-12-handoff-2026-11-05.md](../reports/independent-12-handoff-2026-11-05.md)）就是要被继承的 `--previous-work`：
+它未消耗、数据集不变，唯一的差异是 `wall_clock_s`，符合上面第 3 条允许范围。
+如果保管方已把它物化成运行时副本（如 `H:\盲测保管\independent-12-20261105-r8-runtime`），
+`--previous-work` 指向含 `seal.json` 的目录即可，脚本只读不写旧目录。
