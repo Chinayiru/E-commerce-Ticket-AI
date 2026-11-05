@@ -5,6 +5,7 @@
 
 **当前状态：W1（骨架与离线验收）、W2（上下文/钩子/策略/持久化）、W3（24 条回归集、评估报告、Bad Case 归因入口）、W4（文档与演示）已实现，验收以 [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) 的 AC01–AC21 为准。**
 **交付限制（2026-11-05）：现有 22 个验收测试通过，但补充 AI 审查复现了未被这些断言覆盖的问题；尚无第二人代码复核、独立新盲测成绩或客服采纳率。旧 holdout 已暴露，只保留历史诊断价值。** 见 [审查报告](reports/review-2026-11-05.md) 与 [新盲测流程](docs/BLIND_EVAL.md)。
+新 12 条已由两个不继承实现对话的 AI 流程完成出题和标签复核，保存在仓库外；尚待独立保管方语义去重和正式封存，未运行模型，也不等于第二人或客服签字。见 [独立出题交接](reports/independent-12-handoff-2026-11-05.md)。
 离线桩 `provider=scripted` 与真实模型 `provider=openai` 两套数字分表陈列、绝不混排；真实模型基线用 `deepseek-v4.1-flash-1017`（OpenAI 兼容代理）跑出，波动区间与价目表未核实均已标注。
 
 | 我想…… | 去看 |
@@ -57,6 +58,10 @@ python scripts/seed_datasets.py         # 24 / 12 / 50 条数据集
 python scripts/run_eval.py --out reports
 python scripts/check_leakage.py         # 题干泄漏检查（ok=true 才算过）
 python scripts/collect_evidence.py      # 生成 reports/evidence-index.md
+
+# 4b) 基线与候选各跑 3 次后比中位数（少于 3 次直接拒绝）
+python scripts/compare_runs.py --arm baseline=b1.json,b2.json,b3.json `
+                               --arm candidate=c1.json,c2.json,c3.json
 
 # 5) HTTP / SSE
 python -m app.cli serve --port 8000
@@ -184,7 +189,7 @@ trace 记四件事：用了哪个工具、参数是什么、上下文里有什�
 4. 补充审查（`scripts/review_probes.py`，12 条可执行反例）曾发现旧评分存在缺失调用明细、缺答案仍可能得分、越权调用仍算对等问题。本轮已按 R01–R10 全部修复（细节见 [BADCASE.md](docs/BADCASE.md) 第 9 节），探针 `reproduced=0`；表中数字是用修复后的严格度量重算的**新一轮**结果，不是历史报告的翻版。新独立样本与四项严格评分流程见 [BLIND_EVAL.md](docs/BLIND_EVAL.md)。
 
 跑间波动（同条件重复）：intent 0.9167–1.0000、tools 0.7500–1.0000、args 0.7917–1.0000、escalation 0.5833–1.0000、degraded 0–3。
-单次运行内的波动仍在噪声区间，任何“提升”需同条件重复 3 次取中位数才可宣称。
+近期同条件轮次观察到 intent 0.9167–1.0000、tools 0.9583–1.0000；这与上面跨历史迭代的范围不同。开发集的基线和候选须各同条件完整运行 3 次，报告原值、中位数、范围及逐例变化，才具备讨论“提升”的最低复测证据；中位数仍不等于统计显著性。数据、模型/代理、预算或评分版本不同不能直接比较；新盲测继续遵守一次性封存规则，不重跑旧 holdout。
 单条成本按 0.15/0.60 USD per Mtok、汇率 7.2 估算，**不是代理商的真实价格**；P95 含推理型模型的思考耗时。
 
 | 指标 | 目标 | 当前状态 | 判定口径 |
