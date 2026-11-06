@@ -18,8 +18,10 @@ import threading
 import time
 from typing import Any, AsyncIterator
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from app.config import Config, load_config
 from app.core.loop import ExecutionLoop
@@ -45,6 +47,20 @@ def create_app(
     model = provider if provider is not None else _build_provider(cfg)
 
     app = FastAPI(title="E-commerce Ticket Agent", version="w1")
+
+    page = Path(__file__).with_name("static") / "index.html"
+
+    @app.get("/", include_in_schema=False)
+    async def console() -> FileResponse:
+        # 本地演示页：只调用下面两个公开接口，不含任何业务规则。
+        return FileResponse(page, media_type="text/html; charset=utf-8")
+
+    @app.get("/healthz", include_in_schema=False)
+    async def healthz() -> JSONResponse:
+        # 只暴露“用什么模式在跑”，不暴露凭据或库路径。
+        return JSONResponse(
+            {"status": "ok", "provider": cfg.provider, "model": cfg.model, "prompt_version": cfg.prompt_version}
+        )
 
     def _new_loop(**kwargs: Any) -> ExecutionLoop:
         if model is None:

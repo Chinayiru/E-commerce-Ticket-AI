@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>电商售后工单 Agent · 本地控制台</title>
+<style>
+  :root {
+    --bg: #0f1216; --panel: #161b22; --panel-2: #1c232c; --line: #2a333f;
+    --text: #e6edf3; --muted: #8b98a5; --accent: #4c8dff; --ok: #3fb950;
+    --warn: #d29922; --bad: #f85149; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  header { padding: 18px 24px; border-bottom: 1px solid var(--line); display: flex;
+           align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header .tag { font-size: 12px; color: var(--muted); border: 1px solid var(--line);
+                padding: 2px 8px; border-radius: 999px; }
+  main { display: grid; grid-template-columns: minmax(340px, 42%) 1fr; gap: 0; height: calc(100vh - 62px); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; height: auto; } }
+  section { padding: 18px 20px; overflow: auto; }
+  #left { border-right: 1px solid var(--line); }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px; }
+  input, textarea, select, button { font: inherit; color: var(--text); background: var(--panel);
+        border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; width: 100%; }
+  textarea { min-height: 92px; resize: vertical; font-family: inherit; }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .actions { display: flex; gap: 10px; margin-top: 16px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+  button.primary:disabled { opacity: .55; cursor: progress; }
+  button.ghost { cursor: pointer; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .presets button { width: auto; padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--muted); }
+  .presets button:hover { color: var(--text); border-color: var(--accent); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .card .k { font-size: 11px; color: var(--muted); letter-spacing: .4px; text-transform: uppercase; }
+  .card .v { font-size: 15px; margin-top: 3px; font-family: var(--mono); word-break: break-all; }
+  .v.ok { color: var(--ok); } .v.warn { color: var(--warn); } .v.bad { color: var(--bad); }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted);
+       margin: 22px 0 10px; font-weight: 600; }
+  .draft { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+           border-radius: 8px; padding: 12px 14px; white-space: pre-wrap; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { font-family: var(--mono); font-size: 12px; background: var(--panel-2);
+          border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }
+  .chip.ok { border-color: #1f4d2b; color: var(--ok); }
+  .chip.bad { border-color: #5c1f22; color: var(--bad); }
+  .timeline { border-left: 1px solid var(--line); margin-left: 6px; padding-left: 14px; }
+  .ev { position: relative; padding: 6px 0; font-size: 13px; }
+  .ev::before { content: ""; position: absolute; left: -19px; top: 12px; width: 7px; height: 7px;
+                border-radius: 50%; background: var(--line); }
+  .ev.step::before { background: var(--accent); }
+  .ev.tool::before { background: var(--warn); }
+  .ev.final::before { background: var(--ok); }
+  .ev.error::before { background: var(--bad); }
+  .ev .name { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-right: 8px; }
+  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+        padding: 12px; overflow: auto; font-family: var(--mono); font-size: 12px; margin: 0; }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ffffff55;
+             border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -1px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>电商售后工单 Agent</h1>
+  <span class="tag">本地控制台</span>
+  <span class="tag" id="modeTag">模式：—</span>
+</header>
+
+<main>
+  <section id="left">
+    <label for="text">工单正文</label>
+    <textarea id="text">订单 O1001 一直没发货，我不想要了，帮我退款，5800 元。</textarea>
+
+    <div class="presets">
+      <button data-preset="refund">正常退款 O1001</button>
+      <button data-preset="overlimit">超限 O1006</button>
+      <button data-preset="unauth">越权 O1004</button>
+      <button data-preset="missing">缺单号</button>
+      <button data-preset="complaint">投诉威胁</button>
+      <button data-preset="address">改地址 O1001</button>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="user_id">user_id</label>
+        <input id="user_id" value="U001">
+      </div>
+      <div>
+        <label for="order_id">order_id（可空）</label>
+        <input id="order_id" value="O1001">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="ticket_id">ticket_id</label>
+        <input id="ticket_id" placeholder="留空自动生成">
+      </div>
+      <div>
+        <label for="mode">执行方式</label>
+        <select id="mode">
+          <option value="stream">流式（SSE，逐步可见）</option>
+          <option value="sync">一次性返回</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="run">运行</button>
+      <button class="ghost" id="trace">查最近一次 trace</button>
+    </div>
+    <p class="hint">
+      单价按当前配置估算；<code>provider</code> 由服务端环境决定（scripted / openai）。
+      每次运行都会落库，可用 run_id 拉取完整 trace。
+    </p>
+  </section>
+
+  <section id="right">
+    <h2>结果</h2>
+    <div id="summary" class="cards"><div class="empty">尚未运行。</div></div>
+
+    <h2>回复草稿</h2>
+    <div id="draft" class="draft">—</div>
+
+    <h2>工具调用</h2>
+    <div id="tools" class="chips"><span class="empty">—</span></div>
+
+    <h2>事件时间线</h2>
+    <div id="timeline" class="timeline"><div class="empty">—</div></div>
+
+    <h2>原始响应</h2>
+    <pre id="raw">—</pre>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const PRESETS = {
+  refund:    { text: "订单 O1001 一直没发货，我不想要了，帮我退款，5800 元。", order_id: "O1001" },
+  overlimit: { text: "订单 O1006 我要退款，25000 元现在退给我。", order_id: "O1006" },
+  unauth:    { text: "帮我查一下订单 O1004 现在什么状态，我想退款。", order_id: "O1004" },
+  missing:   { text: "我要退款，这个订单的钱一直没退回来。", order_id: "" },
+  complaint: { text: "你们再不处理我就去投诉，还要起诉你们，已经在收集证据了。", order_id: "" },
+  address:   { text: "订单 O1001 的收货地址写错了，请改成上海市浦东新区世纪大道 100 号。", order_id: "O1001" },
+};
+
+document.querySelectorAll(".presets button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const p = PRESETS[btn.dataset.preset];
+    $("text").value = p.text;
+    $("order_id").value = p.order_id;
+  });
+});
+
+function newTicketId() {
+  return "web-" + Math.random().toString(36).slice(2, 10);
+}
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function reset() {
+  $("summary").innerHTML = "";
+  $("tools").innerHTML = '<span class="empty">—</span>';
+  $("timeline").innerHTML = "";
+  $("draft").textContent = "—";
+  $("raw").textContent = "—";
+}
+
+function addEvent(name, data) {
+  const kind = name === "step" ? "step" : name.startsWith("tool") ? "tool"
+             : name === "final" ? "final" : name === "error" ? "error" : "";
+  const row = el("div", "ev " + kind);
+  row.appendChild(el("span", "name", name));
+  const detail = data && (data.tool || data.name || data.status || data.stop_reason || "");
+  row.appendChild(document.createTextNode(
+    typeof data === "string" ? data : JSON.stringify(detail === "" ? data : detail)));
+  $("timeline").appendChild(row);
+}
+
+function card(key, value, cls) {
+  const box = el("div", "card");
+  box.appendChild(el("div", "k", key));
+  box.appendChild(el("div", "v" + (cls ? " " + cls : ""), String(value)));
+  return box;
+}
+
+function renderResult(result) {
+  const answer = result.answer || {};
+  const summary = $("summary");
+  summary.innerHTML = "";
+  const statusCls = result.status === "ok" ? "ok" : result.status === "degraded" ? "warn" : "bad";
+  summary.appendChild(card("status", result.status, statusCls));
+  summary.appendChild(card("stop_reason", result.stop_reason,
+      result.stop_reason === "finalized" ? "ok" : "warn"));
+  summary.appendChild(card("intent", answer.intent ?? "—"));
+  summary.appendChild(card("needs_human", answer.needs_human === true ? "true" : "false",
+      answer.needs_human ? "warn" : "ok"));
+  summary.appendChild(card("escalate_reason", answer.escalate_reason ?? "—",
+      answer.escalate_reason ? "warn" : ""));
+  summary.appendChild(card("steps", result.steps));
+  summary.appendChild(card("latency", (result.latency_ms ?? 0) + " ms"));
+  summary.appendChild(card("tokens", (result.usage && result.usage.total_tokens) ?? "—"));
+  summary.appendChild(card("cost_cny", (result.usage && result.usage.cost_cny) ?? "—"));
+
+  $("draft").textContent = answer.reply_draft || "（无草稿）";
+
+  const tools = $("tools");
+  tools.innerHTML = "";
+  for (const call of (result.tool_calls || [])) {
+    const label = call.name + (call.ok ? "" : " ✕ " + (call.error_code || "error"))
+      + (call.cached ? " ·cached" : "");
+    tools.appendChild(el("span", "chip " + (call.ok ? "ok" : "bad"), label));
+  }
+  if (!(result.tool_calls || []).length) tools.appendChild(el("span", "empty", "未调用工具"));
+
+  $("raw").textContent = JSON.stringify(result, null, 2);
+}
+
+async function runStream(body) {
+  const resp = await fetch("/v1/tickets/stream", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!resp.ok || !resp.body) {
+    $("raw").textContent = await resp.text();
+    return;
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let cut;
+    while ((cut = buffer.indexOf("\n\n")) >= 0) {
+      const chunk = buffer.slice(0, cut);
+      buffer = buffer.slice(cut + 2);
+      const lines = chunk.split("\n");
+      const eventLine = lines.find((l) => l.startsWith("event: "));
+      const dataLine = lines.find((l) => l.startsWith("data: "));
+      if (!eventLine || !dataLine) continue;
+      const name = eventLine.slice(7).trim();
+      let data = dataLine.slice(6);
+      try { data = JSON.parse(data); } catch (_) {}
+      addEvent(name, data);
+      if (name === "final") renderResult(data);
+      if (name === "error") $("raw").textContent = JSON.stringify(data, null, 2);
+    }
+  }
+}
+
+async function runSync(body) {
+  const resp = await fetch("/v1/tickets", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const data = await resp.json();
+  addEvent(resp.status === 200 ? "final" : "error", { status: resp.status });
+  if (data && data.status) renderResult(data);
+  else $("raw").textContent = JSON.stringify(data, null, 2);
+}
+
+$("run").addEventListener("click", async () => {
+  const btn = $("run");
+  reset();
+  const body = {
+    ticket_id: $("ticket_id").value.trim() || newTicketId(),
+    user_id: $("user_id").value.trim() || "U001",
+    text: $("text").value,
+  };
+  const orderId = $("order_id").value.trim();
+  if (orderId) body.order_id = orderId;
+  $("ticket_id").value = body.ticket_id;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 运行中';
+  try {
+    if ($("mode").value === "stream") await runStream(body);
+    else await runSync(body);
+  } catch (err) {
+    addEvent("error", String(err));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "运行";
+  }
+});
+
+let lastRunId = null;
+const originalRender = renderResult;
+renderResult = function (result) {
+  lastRunId = result.run_id || lastRunId;
+  originalRender(result);
+};
+
+$("trace").addEventListener("click", async () => {
+  if (!lastRunId) { $("raw").textContent = "还没有 run_id，先运行一次。"; return; }
+  const resp = await fetch("/v1/runs/" + lastRunId);
+  $("raw").textContent = JSON.stringify(await resp.json(), null, 2);
+});
+
+fetch("/healthz").then((r) => r.json()).then((info) => {
+  $("modeTag").textContent = "模式：" + (info.provider || "—") + " · " + (info.model || "—");
+}).catch(() => {});
+</script>
+</body>
+</html>
